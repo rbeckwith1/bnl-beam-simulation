@@ -1,36 +1,53 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-# -----------------------------
-# Simulation Parameters
-# -----------------------------
 
-N = 10000                     # Number of particles
+# Initial phase space distrbution
+
+N = 10000                     # num of particles
 
 sigma_t = 1.0                 # ns
 sigma_E = 1.0                 # MeV
 
-# -----------------------------
-# Generate Gaussian bunch
-# -----------------------------
+
+# Generate initial Gaussian bunch (ICs)
+
 
 time = np.random.normal(0, sigma_t, N)
 energy = np.random.normal(0, sigma_E, N)
 
-# -----------------------------
-# Plot longitudinal phase space
-# -----------------------------
+# Save initial values
+time_initial = time.copy()
+energy_initial = energy.copy()
 
-plt.figure(figsize=(8,6))
 
-plt.scatter(time, energy,
-            s=2,
-            alpha=0.35)
+# Parameters
+n_turns = 10000       # number of times around the ring total
+k = 0.0005           # time slip per turn, ns/MeV
 
-plt.xlabel("Arrival Time (ns)")
-plt.ylabel("Energy Deviation (MeV)")
-plt.title("Initial Proton Bunch")
+n_plots = 5
+plot_turns = np.linspace(0, n_turns, n_plots, dtype=int)
 
-plt.grid(True)
+fig, axes = plt.subplots(1, n_plots, figsize=(18,4))
 
+plot_index = 0
+
+for turn in range(n_turns + 1):
+
+    # Plot if this is one of the requested turns
+    if turn == plot_turns[plot_index]:
+        axes[plot_index].scatter(time, energy, s=1, alpha=0.3)
+        axes[plot_index].set_title(f"Turn {turn}")
+        axes[plot_index].set_xlabel("Time")
+        axes[plot_index].set_ylabel("Energy")
+        axes[plot_index].grid(True)
+
+        plot_index += 1
+        if plot_index >= n_plots:
+            break
+
+    # Drift (one turn)
+    time = time - k * energy
+
+plt.tight_layout()
 plt.show()
