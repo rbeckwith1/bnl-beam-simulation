@@ -2,31 +2,79 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-# Initial phase space distrbution
+# -------------------------------------------------
+# Initial Longitudinal Phase Space Distribution
+# -------------------------------------------------
 
-N = 10000                     # num of particles
+N = 10000                  # Number of particles
 
-sigma_t = 1.0                 # ns
-sigma_E = 1.0                 # MeV
+sigma_t = 1.0              # Arrival time RMS (ns)
+sigma_dE = 0.001           # Energy deviation RMS (GeV) = 1 MeV
 
+distribution = "uniform"  # Options: "gaussian" or "uniform"
 
-# Generate initial Gaussian bunch (ICs)
+if distribution == "gaussian":
 
+    # Initial Gaussian bunch
+    time = np.random.normal(0, sigma_t, N)
+    dE = np.random.normal(0, sigma_dE, N)
 
-time = np.random.normal(0, sigma_t, N)
-energy = np.random.normal(0, sigma_E, N)
+elif distribution == "uniform":
 
-# Save initial values
+    # Uniform bunch with approximately the same width
+    time = np.random.uniform(-2*sigma_t, 2*sigma_t, N)
+    dE = np.random.uniform(-2*sigma_dE, 2*sigma_dE, N)
+
+else:
+    raise ValueError("distribution must be 'gaussian' or 'uniform'")
+
+# Save initial coordinates (used for coloring particles)
 time_initial = time.copy()
-energy_initial = energy.copy()
+dE_initial = dE.copy()
 
+# -------------------------------------------------
+# Fixed Plot Limits
+# -------------------------------------------------
+
+padding_t = 0.5      # ns
+padding_dE = 0.0005  # GeV (0.5 MeV)
+
+t_min = np.min(time) - padding_t
+t_max = np.max(time) + padding_t
+
+e_min = np.min(dE) - padding_dE
+e_max = np.max(dE) + padding_dE
 
 # Parameters
-n_turns = 10000       # number of times around the ring total
-k = 0.0005           # time slip per turn, ns/MeV
+n_turns = 50000
+k = 0.0005
 
+print(np.min(time), np.max(time))
+
+initial_time = time.copy()
+
+initial_time = time.copy()
+
+# Reference particle
+K0 = 24.0          # GeV
+mp = 0.938272      # GeV
+c = 299792458      # m/s
+L0 = 807.1         # m
+
+gamma_t = 8.45
+alpha_p = 1 / gamma_t**2
+
+E0_total = K0 + mp
+gamma0 = E0_total / mp
+beta0 = np.sqrt(1 - 1/gamma0**2)
+p0 = np.sqrt(E0_total**2 - mp**2)
+T0 = L0 / (beta0 * c)
+
+# Plots
 n_plots = 5
-plot_turns = np.linspace(0, n_turns, n_plots, dtype=int)
+plot_turns = set(np.linspace(0, n_turns, n_plots, dtype=int))
+
+initial_time = time.copy()
 
 fig, axes = plt.subplots(1, n_plots, figsize=(18,4))
 
@@ -34,20 +82,62 @@ plot_index = 0
 
 for turn in range(n_turns + 1):
 
-    # Plot if this is one of the requested turns
-    if turn == plot_turns[plot_index]:
-        axes[plot_index].scatter(time, energy, s=1, alpha=0.3)
-        axes[plot_index].set_title(f"Turn {turn}")
-        axes[plot_index].set_xlabel("Time")
-        axes[plot_index].set_ylabel("Energy")
-        axes[plot_index].grid(True)
+    if turn in plot_turns:
+
+        ax = axes[plot_index]
+
+        sc = ax.scatter(
+            time,
+            dE * 1000,          # GeV -> MeV for plotting
+            c=initial_time,
+            cmap="coolwarm",
+            s=1,
+            alpha=0.5
+        )
+
+        ax.set_title(f"Turn {turn}")
+        ax.set_xlabel("Arrival Time Deviation (ns)")
+        ax.set_ylabel("Energy Deviation (MeV)")
+        ax.set_xlim(-20, 20)
+        ax.set_ylim(-30, 30)
+        ax.grid(True)
 
         plot_index += 1
-        if plot_index >= n_plots:
-            break
 
-    # Drift (one turn)
-    time = time - k * energy
+    # Physical drift update
+    K = K0 + dE
+    E_total = K + mp
+    gamma = E_total / mp
+    beta = np.sqrt(1 - 1/gamma**2)
+    p = np.sqrt(E_total**2 - mp**2)
+
+    delta = (p - p0) / p0
+
+    L = L0 * (1 + alpha_p * delta)
+    T = L / (beta * c)
+
+    time = time + (T - T0) * 1e9
+
+    # Optional RF kick
+    Vrf = 0.00001   # 10 keV   # reference vlaue for V0 GeV
+    h = 12 # reference value for the harmonic number
+    
+    phi = 2 * np.pi * h * time / (T0*1e9)
+    dE = dE + Vrf * np.sin(phi)
+
+    if plot_index >= n_plots:
+        break
 
 plt.tight_layout()
 plt.show()
+
+print("T0 =", T0*1e9, "ns")
+print("max(T-T0) =", np.max(T-T0)*1e12, "ps")
+print("min(T-T0) =", np.min(T-T0)*1e12, "ps")
+## add proper units
+## fix scaling 
+# find recolution time
+# work out gamma na velocity 
+# assime 24 GeV 
+# findong revolutopm time 
+# circmference o AGS
