@@ -134,10 +134,4 @@ plt.show()
 print("T0 =", T0*1e9, "ns")
 print("max(T-T0) =", np.max(T-T0)*1e12, "ps")
 print("min(T-T0) =", np.min(T-T0)*1e12, "ps")
-## add proper units
-## fix scaling 
-# find recolution time
-# work out gamma na velocity 
-# assime 24 GeV 
-# findong revolutopm time 
-# circmference o AGS
+
