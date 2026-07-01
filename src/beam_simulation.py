@@ -2,16 +2,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-# -------------------------------------------------
 # Initial Longitudinal Phase Space Distribution
-# -------------------------------------------------
 
 N = 5000                  # Number of particles
 
 sigma_t = 1.0              # Arrival time RMS (ns)
-sigma_dE = 0.001           # Energy deviation RMS (GeV) = 1 MeV
+sigma_dE = 0.001           # Energy deviation RMS
 
-distribution = "uniform"  # Options: "gaussian" or "uniform"
+distribution = "uniform"  # "gaussian" or "uniform"
 
 if distribution == "gaussian":
 
@@ -32,12 +30,11 @@ else:
 time_initial = time.copy()
 dE_initial = dE.copy()
 
-# -------------------------------------------------
+
 # Fixed Plot Limits
-# -------------------------------------------------
 
 padding_t = 0.5      # ns
-padding_dE = 0.0005  # GeV (0.5 MeV)
+padding_dE = 0.0005  # GeV
 
 t_min = np.min(time) - padding_t
 t_max = np.max(time) + padding_t
@@ -55,11 +52,12 @@ initial_time = time.copy()
 initial_time = time.copy()
 
 # Synchronous particle
-K0 = 24.0          # GeV
-mp = 0.938272      # GeV
+K0 = 24          # GeV -AGS parameter
+mp = 0.938272      # GeV -rest mass of proton
 c = 299792458      # m/s
-L0 = 807.1         # m
+L0 = 807.1         # m -circumference of AGS
 
+# Reference fractional momentum deviation
 gamma_t = 8.45
 alpha_p = 1 / gamma_t**2
 
@@ -104,20 +102,19 @@ for turn in range(n_turns + 1):
         plot_index += 1
 
     
-        # Physical drift update
-        # Physical drift update
-        K = K0 + dE
-        E_total = K + mp
-        gamma = E_total / mp
-        beta = np.sqrt(1 - 1/gamma**2)
-        p = np.sqrt(E_total**2 - mp**2)
+# Physical drift update
+    K = K0 + dE
+    E_total = K + mp
+    gamma = E_total / mp
+    beta = np.sqrt(1 - 1/gamma**2)
+    p = np.sqrt(E_total**2 - mp**2)
 
-        delta = (p - p0) / p0
+    delta = (p - p0) / p0
 
-        L = L0 * (1 + alpha_p * delta)
-        T = L / (beta * c)
+    L = L0 * (1 + alpha_p * delta)
+    T = L / (beta * c)
 
-        time = time + (T - T0) * 1e9
+    time = time + (T - T0) * 1e9
     time = time + (T - T0) * 1e9
 
     # # Optional RF kick
