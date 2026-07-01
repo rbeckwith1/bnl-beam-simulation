@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 # Initial Longitudinal Phase Space Distribution
 # -------------------------------------------------
 
-N = 10000                  # Number of particles
+N = 5000                  # Number of particles
 
 sigma_t = 1.0              # Arrival time RMS (ns)
 sigma_dE = 0.001           # Energy deviation RMS (GeV) = 1 MeV
@@ -46,16 +46,15 @@ e_min = np.min(dE) - padding_dE
 e_max = np.max(dE) + padding_dE
 
 # Parameters
-n_turns = 50000
+n_turns = 500
 k = 0.0005
 
 print(np.min(time), np.max(time))
 
 initial_time = time.copy()
-
 initial_time = time.copy()
 
-# Reference particle
+# Synchronous particle
 K0 = 24.0          # GeV
 mp = 0.938272      # GeV
 c = 299792458      # m/s
@@ -104,26 +103,29 @@ for turn in range(n_turns + 1):
 
         plot_index += 1
 
-    # Physical drift update
-    K = K0 + dE
-    E_total = K + mp
-    gamma = E_total / mp
-    beta = np.sqrt(1 - 1/gamma**2)
-    p = np.sqrt(E_total**2 - mp**2)
+    
+        # Physical drift update
+        # Physical drift update
+        K = K0 + dE
+        E_total = K + mp
+        gamma = E_total / mp
+        beta = np.sqrt(1 - 1/gamma**2)
+        p = np.sqrt(E_total**2 - mp**2)
 
-    delta = (p - p0) / p0
+        delta = (p - p0) / p0
 
-    L = L0 * (1 + alpha_p * delta)
-    T = L / (beta * c)
+        L = L0 * (1 + alpha_p * delta)
+        T = L / (beta * c)
 
+        time = time + (T - T0) * 1e9
     time = time + (T - T0) * 1e9
 
-    # Optional RF kick
-    Vrf = 0.00001   # 10 keV   # reference vlaue for V0 GeV
-    h = 12 # reference value for the harmonic number
+    # # Optional RF kick
+    # Vrf = 0.00001   # 10 keV   # reference vlaue for V0 GeV
+    # h = 12 # reference value for the harmonic number
     
-    phi = 2 * np.pi * h * time / (T0*1e9)
-    dE = dE + Vrf * np.sin(phi)
+    # phi = 2 * np.pi * h * time / (T0*1e9)
+    # dE = dE + Vrf * np.sin(phi)
 
     if plot_index >= n_plots:
         break
