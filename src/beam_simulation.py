@@ -1,30 +1,35 @@
 import numpy as np
 import matplotlib.pyplot as plt
-
+from matplotlib.animation import FuncAnimation, FFMpegWriter
 
 # Initial Longitudinal Phase Space Distribution
 
-N = 5000                  # Number of particles
+#start with test particle
+N = 10000                  # Number of particles
 
-sigma_t = 1.0              # Arrival time RMS (ns)
+sigma_t = 1             # Arrival time RMS (ns)
 sigma_dE = 0.001           # Energy deviation RMS
 
-distribution = "uniform"  # "gaussian" or "uniform"
 
-if distribution == "gaussian":
+dE = np.random.uniform(-0.2, 0.2, N)  # GeV = ±200 MeV
+time = np.random.uniform(-5, 5, N)    # ns
 
-    # Initial Gaussian bunch
-    time = np.random.normal(0, sigma_t, N)
-    dE = np.random.normal(0, sigma_dE, N)
+# distribution = "uniform"  # "gaussian" or "uniform"
 
-elif distribution == "uniform":
+# if distribution == "gaussian":
 
-    # Uniform bunch with approximately the same width
-    time = np.random.uniform(-2*sigma_t, 2*sigma_t, N)
-    dE = np.random.uniform(-2*sigma_dE, 2*sigma_dE, N)
+#     # Initial Gaussian bunch
+#     time = np.random.normal(0, sigma_t, N)
+#     dE = np.random.normal(0, sigma_dE, N)
 
-else:
-    raise ValueError("distribution must be 'gaussian' or 'uniform'")
+# elif distribution == "uniform":
+
+#     # Uniform bunch with approximately the same width
+#     time = np.random.uniform(-20*sigma_t, 20*sigma_t, N)
+#     dE = np.random.uniform(-8*sigma_dE, 8*sigma_dE, N)
+
+# else:
+#     raise ValueError("distribution must be 'gaussian' or 'uniform'")
 
 # Save initial coordinates (used for coloring particles)
 time_initial = time.copy()
@@ -43,7 +48,7 @@ e_min = np.min(dE) - padding_dE
 e_max = np.max(dE) + padding_dE
 
 # Parameters
-n_turns = 500
+n_turns = 2000
 k = 0.0005
 
 print(np.min(time), np.max(time))
@@ -68,69 +73,57 @@ p0 = np.sqrt(E0_total**2 - mp**2)
 T0 = L0 / (beta0 * c)
 
 # Plots
-n_plots = 5
+n_plots = 10
 plot_turns = set(np.linspace(0, n_turns, n_plots, dtype=int))
 
-initial_time = time.copy()
+fig, ax = plt.subplots(figsize=(6,5))
 
-fig, axes = plt.subplots(1, n_plots, figsize=(18,4))
+sc = ax.scatter(time, dE * 1000, c=initial_time, cmap="coolwarm", s=3, alpha=0.6)
 
-plot_index = 0
+ax.set_xlim(-50, 50)
+ax.set_ylim(-200, 200)
+ax.set_xlabel("Arrival Time Deviation (ns)")
+ax.set_ylabel("Energy Deviation (MeV)")
+ax.grid(True)
 
-for turn in range(n_turns + 1):
+title = ax.set_title("Turn 0")
 
-    if turn in plot_turns:
+def update(frame):
+    global time, dE
 
-        ax = axes[plot_index]
+    for _ in range(turns_per_frame):
+        
+        # Drift update
+        K = K0 + dE
+        E_total = K + mp
+        gamma = E_total / mp
+        beta = np.sqrt(1 - 1/gamma**2)
+        p = np.sqrt(E_total**2 - mp**2)
 
-        sc = ax.scatter(
-            time,
-            dE * 1000,          # GeV -> MeV for plotting
-            c=initial_time,
-            cmap="coolwarm",
-            s=1,
-            alpha=0.5
-        )
+        delta = (p - p0) / p0
+        L = L0 * (1 + alpha_p * delta)
+        T = L / (beta * c)
 
-        ax.set_title(f"Turn {turn}")
-        ax.set_xlabel("Arrival Time Deviation (ns)")
-        ax.set_ylabel("Energy Deviation (MeV)")
-        ax.set_xlim(-20, 20)
-        ax.set_ylim(-30, 30)
-        ax.grid(True)
+        time = time + (T - T0) * 1e9
 
-        plot_index += 1
+        # RF kick
+        Vrf = 320e3/(1e9)  # GeV
+        h = 6
+        phi = 2 * np.pi * h * time / (T0 * 1e9)
 
+        dE = dE - Vrf * np.sin(phi) # negative energy kick above transition
     
-# Physical drift update
-    K = K0 + dE
-    E_total = K + mp
-    gamma = E_total / mp
-    beta = np.sqrt(1 - 1/gamma**2)
-    p = np.sqrt(E_total**2 - mp**2)
+    sc.set_offsets(np.column_stack((time, dE * 1000)))
+    title.set_text(f"Turn {frame * turns_per_frame}")
+    return sc, title
 
-    delta = (p - p0) / p0
+turns_per_frame = 10
+n_frames = 200
 
-    L = L0 * (1 + alpha_p * delta)
-    T = L / (beta * c)
+ani = FuncAnimation(fig, update, frames=n_frames, interval=30, blit=True)
 
-    time = time + (T - T0) * 1e9
-    time = time + (T - T0) * 1e9
-
-    # # Optional RF kick
-    # Vrf = 0.00001   # 10 keV   # reference vlaue for V0 GeV
-    # h = 12 # reference value for the harmonic number
-    
-    # phi = 2 * np.pi * h * time / (T0*1e9)
-    # dE = dE + Vrf * np.sin(phi)
-
-    if plot_index >= n_plots:
-        break
-
-plt.tight_layout()
-plt.show()
-
+writer = FFMpegWriter(fps=30)
+ani.save("rf_bucket_motion.mp4", writer=writer, dpi=150)
 print("T0 =", T0*1e9, "ns")
-print("max(T-T0) =", np.max(T-T0)*1e12, "ps")
-print("min(T-T0) =", np.min(T-T0)*1e12, "ps")
+
 
