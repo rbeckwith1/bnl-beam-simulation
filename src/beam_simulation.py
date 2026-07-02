@@ -11,8 +11,8 @@ sigma_t = 1             # Arrival time RMS (ns)
 sigma_dE = 0.001           # Energy deviation RMS
 
 
-dE = np.random.uniform(-0.2, 0.2, N)  # GeV = ±200 MeV
-time = np.random.uniform(-5, 5, N)    # ns
+dE = np.random.uniform(-0.02, 0.02, N)  # GeV = ±200 MeV
+time = np.random.uniform(-250, 250, N)    # ns
 
 # distribution = "uniform"  # "gaussian" or "uniform"
 
@@ -48,7 +48,7 @@ e_min = np.min(dE) - padding_dE
 e_max = np.max(dE) + padding_dE
 
 # Parameters
-n_turns = 2000
+n_turns = 8000
 k = 0.0005
 
 print(np.min(time), np.max(time))
@@ -80,8 +80,8 @@ fig, ax = plt.subplots(figsize=(6,5))
 
 sc = ax.scatter(time, dE * 1000, c=initial_time, cmap="coolwarm", s=3, alpha=0.6)
 
-ax.set_xlim(-50, 50)
-ax.set_ylim(-200, 200)
+ax.set_xlim(-800, 800)
+ax.set_ylim(-275, 275)
 ax.set_xlabel("Arrival Time Deviation (ns)")
 ax.set_ylabel("Energy Deviation (MeV)")
 ax.grid(True)
@@ -118,7 +118,7 @@ def update(frame):
     return sc, title
 
 turns_per_frame = 10
-n_frames = 200
+n_frames = 800
 
 ani = FuncAnimation(fig, update, frames=n_frames, interval=30, blit=True)
 
