@@ -26,3 +26,7 @@ Longitudinal beam dynamics simulation.
 
 
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> refactor-modular-structure
