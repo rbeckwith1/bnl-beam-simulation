@@ -34,8 +34,6 @@ e_max = np.max(dE) + padding_dE
 n_turns = 50000
 k = 0.0005
 
-print(np.min(time), np.max(time))
-
 initial_time = time.copy()
 initial_time = time.copy()
 
@@ -48,13 +46,16 @@ L0 = 807.1         # m -circumference of AGS
 # Reference fractional momentum deviation
 gamma_t = 8.45
 alpha_p = 1 / gamma_t**2
-print(alpha_p)
+h = 6
 
 E0_total = K0 + mp
 gamma0 = E0_total / mp
 beta0 = np.sqrt(1 - 1/gamma0**2)
 p0 = np.sqrt(E0_total**2 - mp**2)
 T0 = L0 / (beta0 * c)
+
+# RF period
+T_rf_ns = (T0 / h) * 1e9
 
 # Plots
 n_plots = 10
@@ -64,7 +65,7 @@ fig, ax = plt.subplots(figsize=(6,5))
 
 sc = ax.scatter(time, dE * 1000, c=initial_time, cmap="coolwarm", s=3, alpha=0.6)
 
-ax.set_xlim(-800, 800)
+ax.set_xlim(-T_rf_ns/2, T_rf_ns/2)
 ax.set_ylim(-275, 275)
 ax.set_xlabel("Arrival Time Deviation (ns)")
 ax.set_ylabel("Energy Deviation (MeV)")
@@ -74,6 +75,45 @@ title = ax.set_title("Turn 0")
 
 current_turn = 0
 log_rows = []
+
+def wrap_to_bucket(time_ns, T_rf_ns):
+    """
+    Wrap arrival-time deviation into one RF bucket:
+    [-T_rf/2, +T_rf/2)
+    """
+    return ((time_ns + T_rf_ns/2) % T_rf_ns) - T_rf_ns/2
+
+# Separatrix line
+sep_line_plus, = ax.plot([], [], "k-", linewidth=2, label="Separatrix")
+sep_line_minus, = ax.plot([], [], "k-", linewidth=2)
+
+ax.legend()
+
+def separatrix_curve(Vrf, n_points=1000):
+    """
+    Approximate RF bucket separatrix for the current Vrf.
+    Returns time in ns and dE in MeV.
+    """
+
+    phi = np.linspace(-np.pi, np.pi, n_points)
+
+    # Slip factor
+    eta = alpha_p - 1 / gamma0**2
+
+    # RF angular frequency
+    omega_rf = 2 * np.pi / (T_rf_ns * 1e-9)
+
+    # Bucket half-height approximation in GeV
+    # valid for stationary bucket
+    inside = (2 * beta0**2 * E0_total * Vrf / (np.pi * h * abs(eta))) * (1 + np.cos(phi))
+
+    inside = np.maximum(inside, 0)
+    dE_sep_GeV = np.sqrt(inside)
+
+    # Convert phase to time
+    time_sep_ns = phi / (2 * np.pi) * T_rf_ns
+
+    return time_sep_ns, dE_sep_GeV * 1000
 
 def update(frame):
     global time, dE, current_turn
@@ -94,6 +134,8 @@ def update(frame):
         T = L / (beta * c)
 
         time = time + (T - T0) * 1e9
+        
+        time = wrap_to_bucket(time, T_rf_ns)
 
         # RF voltage ramp
         Vrf_initial = 0 #50e3 / 1e9
@@ -125,7 +167,6 @@ def update(frame):
 
 
         # RF kick
-        h = 6
         phi = 2 * np.pi * h * time / (T0 * 1e9) + np.pi # add 180 degrees - above crossing transition
 
         dE = dE + Vrf * np.sin(phi)
@@ -151,7 +192,14 @@ def update(frame):
     title.set_text(
         f"Turn {current_turn}, Vrf = {Vrf * 1e9 / 1e3:.1f} kV"
     )
-    return sc, title
+    
+    # Update separatrix using current Vrf
+    t_sep, dE_sep = separatrix_curve(Vrf)
+
+    sep_line_plus.set_data(t_sep, dE_sep)
+    sep_line_minus.set_data(t_sep, -dE_sep)
+    
+    return sc, title, sep_line_plus, sep_line_minus
 
 turns_per_frame = 100
 n_frames = 500
