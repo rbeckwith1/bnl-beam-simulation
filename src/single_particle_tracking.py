@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 # Initial particle coordinates
 # time > 0 means particle arrives late
-time = np.array([400.0])       # ns
+time = np.array([2000.0])       # ns
 dE = np.array([0.0])         # GeV
 
 # Save initial values

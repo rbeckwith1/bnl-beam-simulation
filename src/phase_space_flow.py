@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import root
+from scipy.integrate import cumulative_trapezoid
 
 from constants import c, mp, K0, L0, alpha_p, h, phi_s
 
@@ -21,7 +22,7 @@ T0 = L0 / (beta0 * c)
 # -----------------------------
 
 Vrf = 0.00001  # GeV
-q_range = (-20, 20)      # ns
+q_range = (-400, 400)      # ns
 p_range = (-0.03, 0.03)  # GeV
 
 
@@ -65,10 +66,10 @@ def fixed_point_equations(x):
 
 guesses = [
     [0, 0],
-    [5, 0],
-    [-5, 0],
-    [10, 0],
-    [-10, 0],
+    [100, 0],
+    [-100, 0],
+    [300, 0],
+    [-300, 0],
 ]
 
 fixed_points = []
@@ -98,8 +99,8 @@ for q_fp, p_fp in fixed_points:
 # Phase-space flow plot
 # -----------------------------
 
-q_vals = np.linspace(q_range[0], q_range[1], 200)
-p_vals = np.linspace(p_range[0], p_range[1], 200)
+q_vals = np.linspace(q_range[0], q_range[1], 400)
+p_vals = np.linspace(p_range[0], p_range[1], 400)
 
 Q, P = np.meshgrid(q_vals, p_vals)
 
@@ -115,6 +116,61 @@ for q_fp, p_fp in fixed_points:
 plt.xlabel("Arrival time deviation q [ns]")
 plt.ylabel("Energy deviation p [MeV]")
 plt.title("Longitudinal Phase-Space Flow")
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+# -----------------------------
+# Hamiltonian contours
+# -----------------------------
+
+# Integrate f(p) with respect to p
+Hp = cumulative_trapezoid(f(p_vals), p_vals, initial=0)
+
+# Integrate -g(q) with respect to q
+Hq = cumulative_trapezoid(-g(q_vals), q_vals, initial=0)
+
+# Combine to make H(q, p)
+# H has shape matching meshgrid: rows are p, columns are q
+H = Hp[:, None] + Hq[None, :]
+
+
+# -----------------------------
+# Plot flow + Hamiltonian contours
+# -----------------------------
+
+plt.figure(figsize=(10, 6))
+
+# Hamiltonian contours
+contours = plt.contour(
+    Q,
+    P * 1000,
+    H,
+    levels=30,
+    cmap="viridis"
+)
+
+plt.clabel(contours, inline=True, fontsize=7)
+
+# Phase-space flow
+plt.streamplot(
+    Q,
+    P * 1000,
+    F,
+    G * 1000,
+    density=1.2,
+    color="gray",
+    linewidth=0.8,
+    arrowsize=0.8
+)
+
+# Fixed points
+for q_fp, p_fp in fixed_points:
+    plt.plot(q_fp, p_fp * 1000, "ko")
+
+plt.xlabel("Arrival time deviation q [ns]")
+plt.ylabel("Energy deviation p [MeV]")
+plt.title("Longitudinal Phase-Space Flow and Hamiltonian Contours")
 plt.grid(True)
 plt.tight_layout()
 plt.show()

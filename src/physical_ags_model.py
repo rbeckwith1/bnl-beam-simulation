@@ -95,8 +95,8 @@ for turn in range(n_turns + 1):
         ax.set_title(f"Turn {turn}")
         ax.set_xlabel("Arrival Time Deviation (ns)")
         ax.set_ylabel("Energy Deviation (MeV)")
-        ax.set_xlim(-20, 20)
-        ax.set_ylim(-30, 30)
+        ax.set_xlim(-5, 5)
+        ax.set_ylim(-5, 5)
         ax.grid(True)
 
         plot_index += 1
