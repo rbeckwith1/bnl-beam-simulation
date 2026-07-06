@@ -22,8 +22,8 @@ T0 = L0 / (beta0 * c)
 # -----------------------------
 
 Vrf = 0.00001  # GeV
-q_range = (-400, 400)      # ns
-p_range = (-0.03, 0.03)  # GeV
+q_range = (-600, 600)      # ns
+p_range = (-0.06, 0.06)  # GeV
 
 
 # -----------------------------
@@ -64,13 +64,10 @@ def fixed_point_equations(x):
     return [f(p), g(q)]
 
 
-guesses = [
-    [0, 0],
-    [100, 0],
-    [-100, 0],
-    [300, 0],
-    [-300, 0],
-]
+guesses = []
+
+for q_guess in np.linspace(q_range[0], q_range[1], 25):
+    guesses.append([q_guess, 0])
 
 fixed_points = []
 
@@ -99,8 +96,8 @@ for q_fp, p_fp in fixed_points:
 # Phase-space flow plot
 # -----------------------------
 
-q_vals = np.linspace(q_range[0], q_range[1], 400)
-p_vals = np.linspace(p_range[0], p_range[1], 400)
+q_vals = np.linspace(q_range[0], q_range[1], 600)
+p_vals = np.linspace(p_range[0], p_range[1], 600)
 
 Q, P = np.meshgrid(q_vals, p_vals)
 

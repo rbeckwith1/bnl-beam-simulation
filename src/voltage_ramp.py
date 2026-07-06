@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, FFMpegWriter
-
+import pandas as pd
 # Initial Longitudinal Phase Space Distribution
 
 #start with test particle
@@ -13,23 +13,6 @@ sigma_dE = 0.001           # Energy deviation RMS
 
 dE = np.random.uniform(-0.02, 0.02, N)  # GeV = ±200 MeV
 time = np.random.uniform(-250, 250, N)    # ns
-
-# distribution = "uniform"  # "gaussian" or "uniform"
-
-# if distribution == "gaussian":
-
-#     # Initial Gaussian bunch
-#     time = np.random.normal(0, sigma_t, N)
-#     dE = np.random.normal(0, sigma_dE, N)
-
-# elif distribution == "uniform":
-
-#     # Uniform bunch with approximately the same width
-#     time = np.random.uniform(-20*sigma_t, 20*sigma_t, N)
-#     dE = np.random.uniform(-8*sigma_dE, 8*sigma_dE, N)
-
-# else:
-#     raise ValueError("distribution must be 'gaussian' or 'uniform'")
 
 # Save initial coordinates (used for coloring particles)
 time_initial = time.copy()
@@ -48,7 +31,7 @@ e_min = np.min(dE) - padding_dE
 e_max = np.max(dE) + padding_dE
 
 # Parameters
-n_turns = 100000
+n_turns = 50000
 k = 0.0005
 
 print(np.min(time), np.max(time))
@@ -65,6 +48,7 @@ L0 = 807.1         # m -circumference of AGS
 # Reference fractional momentum deviation
 gamma_t = 8.45
 alpha_p = 1 / gamma_t**2
+print(alpha_p)
 
 E0_total = K0 + mp
 gamma0 = E0_total / mp
@@ -89,12 +73,15 @@ ax.grid(True)
 title = ax.set_title("Turn 0")
 
 current_turn = 0
+log_rows = []
 
 def update(frame):
     global time, dE, current_turn
 
-    for _ in range(turns_per_frame):
+    for i in range(turns_per_frame):
 
+        turn_number = frame * turns_per_frame + i
+        
         # Drift update
         K = K0 + dE
         E_total = K + mp
@@ -109,18 +96,54 @@ def update(frame):
         time = time + (T - T0) * 1e9
 
         # RF voltage ramp
-        Vrf_initial = 50e3 / 1e9
+        Vrf_initial = 0 #50e3 / 1e9
         Vrf_final = 320e3 / 1e9
         ramp_turns = 100000
 
-        ramp_fraction = min(current_turn / ramp_turns, 1.0)
-        Vrf = Vrf_initial + (Vrf_final - Vrf_initial) * ramp_fraction
+
+        ## linear ramp
+        # ramp_fraction = min(current_turn / ramp_turns, 1.0)
+        # # Vrf = Vrf_initial + (Vrf_final - Vrf_initial) * ramp_fraction
+        
+        # initial_turns = 10
+        # if current_turn < initial_turns:
+        #     Vrf = Vrf_initial + (Vrf_final - Vrf_initial) * current_turn/ramp_turns/1000
+        # else:
+        #     Vrf = Vrf_initial + (Vrf_final - Vrf_initial) * ramp_fraction
+
+        ## nonlinear ramp
+        Vrf_initial = 0
+        Vrf_final = 320e3 / 1e9
+        ramp_turns = 100000
+
+        r = min(current_turn / ramp_turns, 1.0)
+
+        # Nonlinear slow-start ramp
+        ramp_shape = r**1.5
+
+        Vrf = Vrf_initial + (Vrf_final - Vrf_initial) * ramp_shape
+
 
         # RF kick
         h = 6
-        phi = 2 * np.pi * h * time / (T0 * 1e9)
+        phi = 2 * np.pi * h * time / (T0 * 1e9) + np.pi # add 180 degrees - above crossing transition
 
-        dE = dE - Vrf * np.sin(phi)
+        dE = dE + Vrf * np.sin(phi)
+        
+        log_rows.append({
+            "turn": turn_number,
+
+            "dE_avg_GeV": np.mean(dE),
+            "dE_sigma_GeV": np.std(dE),
+            "dE_min_GeV": np.min(dE),
+            "dE_max_GeV": np.max(dE),
+
+            "time_avg_ns": np.mean(time),
+            "time_sigma_ns": np.std(time),
+            "time_min_ns": np.min(time),
+            "time_max_ns": np.max(time),
+        })
+
 
         current_turn += 1
 
@@ -131,10 +154,30 @@ def update(frame):
     return sc, title
 
 turns_per_frame = 100
-n_frames = 1000
+n_frames = 500
 
 ani = FuncAnimation(fig, update, frames=n_frames, interval=30, blit=True)
 
 writer = FFMpegWriter(fps=30)
 ani.save("rf_bucket_motion.mp4", writer=writer, dpi=150)
+
+log_df = pd.DataFrame(log_rows)
+log_df.to_csv("turn_log.csv", index=False)
+
 print("T0 =", T0*1e9, "ns")
+
+log_df = pd.read_csv("turn_log.csv")
+
+plt.figure(figsize=(6,4))
+plt.plot(log_df["turn"], log_df["dE_sigma_GeV"] * 1000)
+plt.xlabel("Turn")
+plt.ylabel("Energy spread sigma [MeV]")
+plt.grid(True)
+plt.show()
+
+plt.figure(figsize=(6,4))
+plt.plot(log_df["turn"], log_df["time_sigma_ns"])
+plt.xlabel("Turn")
+plt.ylabel("Time spread sigma [ns]")
+plt.grid(True)
+plt.show()

@@ -1,8 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, FFMpegWriter
+import pandas as pd
 
 # Initial Longitudinal Phase Space Distribution
+log_rows = []
 
 #start with test particle
 N = 10000                  # Number of particles
@@ -14,22 +16,6 @@ sigma_dE = 0.001           # Energy deviation RMS
 dE = np.random.uniform(-0.02, 0.02, N)  # GeV = ±200 MeV
 time = np.random.uniform(-250, 250, N)    # ns
 
-# distribution = "uniform"  # "gaussian" or "uniform"
-
-# if distribution == "gaussian":
-
-#     # Initial Gaussian bunch
-#     time = np.random.normal(0, sigma_t, N)
-#     dE = np.random.normal(0, sigma_dE, N)
-
-# elif distribution == "uniform":
-
-#     # Uniform bunch with approximately the same width
-#     time = np.random.uniform(-20*sigma_t, 20*sigma_t, N)
-#     dE = np.random.uniform(-8*sigma_dE, 8*sigma_dE, N)
-
-# else:
-#     raise ValueError("distribution must be 'gaussian' or 'uniform'")
 
 # Save initial coordinates (used for coloring particles)
 time_initial = time.copy()
@@ -48,7 +34,7 @@ e_min = np.min(dE) - padding_dE
 e_max = np.max(dE) + padding_dE
 
 # Parameters
-n_turns = 8000
+n_turns = 4000
 k = 0.0005
 
 print(np.min(time), np.max(time))
@@ -73,8 +59,8 @@ p0 = np.sqrt(E0_total**2 - mp**2)
 T0 = L0 / (beta0 * c)
 
 # Plots
-n_plots = 10
-plot_turns = set(np.linspace(0, n_turns, n_plots, dtype=int))
+# n_plots = 10
+# plot_turns = set(np.linspace(0, n_turns, n_plots, dtype=int))
 
 fig, ax = plt.subplots(figsize=(6,5))
 
@@ -89,10 +75,12 @@ ax.grid(True)
 title = ax.set_title("Turn 0")
 
 def update(frame):
-    global time, dE
+    global time, dE, log_rows
 
-    for _ in range(turns_per_frame):
-        
+    for i in range(turns_per_frame):
+
+        turn_number = frame * turns_per_frame + i
+
         # Drift update
         K = K0 + dE
         E_total = K + mp
@@ -107,23 +95,59 @@ def update(frame):
         time = time + (T - T0) * 1e9
 
         # RF kick
-        Vrf = 320e3/(1e9)  # GeV
+        Vrf = 320e3 / 1e9  # GeV
         h = 6
-        phi = 2 * np.pi * h * time / (T0 * 1e9)
 
-        dE = dE - Vrf * np.sin(phi) # negative energy kick above transition
-    
+        # phase = argument of sin()
+        phi = 2 * np.pi * h * time / (T0 * 1e9) + np.pi
+
+        dE = dE + Vrf * np.sin(phi)
+
+        # Log stats for this turn
+        log_rows.append({
+            "turn": turn_number,
+
+            "dE_avg_GeV": np.mean(dE),
+            "dE_sigma_GeV": np.std(dE),
+            "dE_min_GeV": np.min(dE),
+            "dE_max_GeV": np.max(dE),
+
+            "time_avg_ns": np.mean(time),
+            "time_sigma_ns": np.std(time),
+            "time_min_ns": np.min(time),
+            "time_max_ns": np.max(time),
+        })
+
     sc.set_offsets(np.column_stack((time, dE * 1000)))
     title.set_text(f"Turn {frame * turns_per_frame}")
     return sc, title
 
 turns_per_frame = 10
-n_frames = 800
+n_frames = 400
 
 ani = FuncAnimation(fig, update, frames=n_frames, interval=30, blit=True)
 
 writer = FFMpegWriter(fps=30)
 ani.save("rf_bucket_motion.mp4", writer=writer, dpi=150)
+
+log_df = pd.DataFrame(log_rows)
+log_df.to_csv("turn_log.csv", index=False)
+
 print("T0 =", T0*1e9, "ns")
 
+log_df = pd.read_csv("turn_log.csv")
+
+plt.figure(figsize=(6,4))
+plt.plot(log_df["turn"], log_df["dE_sigma_GeV"] * 1000)
+plt.xlabel("Turn")
+plt.ylabel("Energy spread sigma [MeV]")
+plt.grid(True)
+plt.show()
+
+plt.figure(figsize=(6,4))
+plt.plot(log_df["turn"], log_df["time_sigma_ns"])
+plt.xlabel("Turn")
+plt.ylabel("Time spread sigma [ns]")
+plt.grid(True)
+plt.show()
 
