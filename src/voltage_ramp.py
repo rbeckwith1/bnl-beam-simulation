@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, FFMpegWriter
 import pandas as pd
+from scipy.optimize import brentq
 # Initial Longitudinal Phase Space Distribution
 
 #start with test particle
@@ -11,7 +12,7 @@ sigma_t = 1             # Arrival time RMS (ns)
 sigma_dE = 0.001           # Energy deviation RMS
 
 
-dE = np.random.uniform(-0.02, 0.02, N)  # GeV = ±200 MeV
+dE = np.random.uniform(-0.08, 0.08, N)  # GeV = ±200 MeV
 time = np.random.uniform(-250, 250, N)    # ns
 
 # Save initial coordinates (used for coloring particles)
@@ -89,31 +90,83 @@ sep_line_minus, = ax.plot([], [], "k-", linewidth=2)
 
 ax.legend()
 
-def separatrix_curve(Vrf, n_points=1000):
+def F_exact(dE):
     """
-    Approximate RF bucket separatrix for the current Vrf.
+    Exact drift Hamiltonian term F(dE), where dF/ddE = (T(dE)-T0)*1e9.
+    dE is in GeV.
+    F has units ns*GeV/turn.
+    """
+
+    E0 = K0 + mp
+    P0 = np.sqrt(E0**2 - mp**2)
+    beta0 = P0 / E0
+    T0 = L0 / (beta0 * c)
+
+    E = K0 + dE + mp
+    P = np.sqrt(E**2 - mp**2)
+
+    return 1e9 * (
+        (L0 / c) * (
+            (1 - alpha_p) * (P - P0)
+            + alpha_p * (E**2 - E0**2) / (2 * P0)
+        )
+        - T0 * dE
+    )
+
+
+def U_rf(q_ns, Vrf):
+    """
+    Matches RF kick:
+        dE = dE + Vrf * sin(2*pi*q/T_rf + pi)
+    which equals:
+        dE = dE - Vrf * sin(2*pi*q/T_rf)
+    """
+
+    omega = 2 * np.pi / T_rf_ns  # rad/ns
+
+    return -(Vrf / omega) * np.cos(omega * q_ns)
+
+def separatrix_curve(Vrf, n_points=1000, p_max=0.5):
+    """
+    Exact-Hamiltonian RF bucket separatrix.
     Returns time in ns and dE in MeV.
     """
 
-    phi = np.linspace(-np.pi, np.pi, n_points)
+    q_vals = np.linspace(-T_rf_ns / 2, T_rf_ns / 2, n_points)
 
-    # Slip factor
-    eta = alpha_p - 1 / gamma0**2
 
-    # RF angular frequency
-    omega_rf = 2 * np.pi / (T_rf_ns * 1e-9)
+    if Vrf <= 0:
+        q_vals = np.linspace(-T_rf_ns / 2, T_rf_ns / 2, n_points)
+        return q_vals, np.full_like(q_vals, np.nan), np.full_like(q_vals, np.nan)
 
-    # Bucket half-height approximation in GeV
-    # valid for stationary bucket
-    inside = (2 * beta0**2 * E0_total * Vrf / (np.pi * h * abs(eta))) * (1 + np.cos(phi))
+    q_saddle = T_rf_ns / 2
+    p_saddle = 0.0
 
-    inside = np.maximum(inside, 0)
-    dE_sep_GeV = np.sqrt(inside)
+    H_sep = F_exact(p_saddle) + U_rf(q_saddle, Vrf)
 
-    # Convert phase to time
-    time_sep_ns = phi / (2 * np.pi) * T_rf_ns
+    p_plus = np.full_like(q_vals, np.nan)
+    p_minus = np.full_like(q_vals, np.nan)
 
-    return time_sep_ns, dE_sep_GeV * 1000
+    for i, q in enumerate(q_vals):
+
+        target = H_sep - U_rf(q, Vrf)
+
+        def root_func(p):
+            return F_exact(p) - target
+
+        # Positive branch
+        try:
+            p_plus[i] = brentq(root_func, 0.0, p_max)
+        except ValueError:
+            pass
+
+        # Negative branch
+        try:
+            p_minus[i] = brentq(root_func, -p_max, 0.0)
+        except ValueError:
+            pass
+
+    return q_vals, p_plus * 1000, p_minus * 1000
 
 def update(frame):
     global time, dE, current_turn
@@ -140,7 +193,7 @@ def update(frame):
         # RF voltage ramp
         Vrf_initial = 0 #50e3 / 1e9
         Vrf_final = 320e3 / 1e9
-        ramp_turns = 100000
+        ramp_turns = 10 #0000
 
 
         ## linear ramp
@@ -194,10 +247,10 @@ def update(frame):
     )
     
     # Update separatrix using current Vrf
-    t_sep, dE_sep = separatrix_curve(Vrf)
+    t_sep, dE_plus, dE_minus = separatrix_curve(Vrf)
 
-    sep_line_plus.set_data(t_sep, dE_sep)
-    sep_line_minus.set_data(t_sep, -dE_sep)
+    sep_line_plus.set_data(t_sep, dE_plus)
+    sep_line_minus.set_data(t_sep, dE_minus)
     
     return sc, title, sep_line_plus, sep_line_minus
 
