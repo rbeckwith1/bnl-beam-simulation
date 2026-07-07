@@ -161,7 +161,7 @@ def update(frame):
         r = min(current_turn / ramp_turns, 1.0)
 
         # Nonlinear slow-start ramp
-        ramp_shape = r**1.5
+        ramp_shape = r**1
 
         Vrf = Vrf_initial + (Vrf_final - Vrf_initial) * ramp_shape
 
