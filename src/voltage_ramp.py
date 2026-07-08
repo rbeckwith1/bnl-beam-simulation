@@ -55,7 +55,7 @@ beta0 = np.sqrt(1 - 1/gamma0**2)
 p0 = np.sqrt(E0_total**2 - mp**2)
 T0 = L0 / (beta0 * c)
 
-# RF period
+# RF period synchronous particle
 T_rf_ns = (T0 / h) * 1e9
 
 # Plots
@@ -90,7 +90,7 @@ sep_line_minus, = ax.plot([], [], "k-", linewidth=2)
 
 ax.legend()
 
-def F_exact(dE):
+def F_(dE):
     """
     Exact drift Hamiltonian term F(dE), where dF/ddE = (T(dE)-T0)*1e9.
     dE is in GeV.
@@ -114,7 +114,7 @@ def F_exact(dE):
     )
 
 
-def U_rf(q_ns, Vrf):
+def G_(q_ns, Vrf):
     """
     Matches RF kick:
         dE = dE + Vrf * sin(2*pi*q/T_rf + pi)
@@ -133,26 +133,28 @@ def separatrix_curve(Vrf, n_points=1000, p_max=0.5):
     """
 
     q_vals = np.linspace(-T_rf_ns / 2, T_rf_ns / 2, n_points)
-
-
     if Vrf <= 0:
         q_vals = np.linspace(-T_rf_ns / 2, T_rf_ns / 2, n_points)
         return q_vals, np.full_like(q_vals, np.nan), np.full_like(q_vals, np.nan)
-
+    
+    # unstable fixed point coordinates
     q_saddle = T_rf_ns / 2
     p_saddle = 0.0
 
-    H_sep = F_exact(p_saddle) + U_rf(q_saddle, Vrf)
+    # Hamiltonian of the unstable fixed point
+    H_sep = F_(p_saddle) + G_(q_saddle, Vrf)
 
     p_plus = np.full_like(q_vals, np.nan)
     p_minus = np.full_like(q_vals, np.nan)
 
     for i, q in enumerate(q_vals):
 
-        target = H_sep - U_rf(q, Vrf)
+        # F(dE) calculation
+        target = H_sep - G_(q, Vrf)
 
+        # Calculating how far target is from F(dE) calculated in F_
         def root_func(p):
-            return F_exact(p) - target
+            return F_(p) - target
 
         # Positive branch
         try:
@@ -195,25 +197,14 @@ def update(frame):
         Vrf_final = 320e3 / 1e9
         ramp_turns = 10 #0000
 
-
-        ## linear ramp
-        # ramp_fraction = min(current_turn / ramp_turns, 1.0)
-        # # Vrf = Vrf_initial + (Vrf_final - Vrf_initial) * ramp_fraction
-        
-        # initial_turns = 10
-        # if current_turn < initial_turns:
-        #     Vrf = Vrf_initial + (Vrf_final - Vrf_initial) * current_turn/ramp_turns/1000
-        # else:
-        #     Vrf = Vrf_initial + (Vrf_final - Vrf_initial) * ramp_fraction
-
-        ## nonlinear ramp
+        ## ramp
         Vrf_initial = 0
         Vrf_final = 320e3 / 1e9
         ramp_turns = 100000
 
         r = min(current_turn / ramp_turns, 1.0)
 
-        # Nonlinear slow-start ramp
+        # ramp rate
         ramp_shape = r**1
 
         Vrf = Vrf_initial + (Vrf_final - Vrf_initial) * ramp_shape

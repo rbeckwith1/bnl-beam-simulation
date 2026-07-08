@@ -80,6 +80,126 @@ def wrap_to_bucket(time_ns, T_rf_ns):
     """
     return ((time_ns + T_rf_ns/2) % T_rf_ns) - T_rf_ns/2
 
+# Separatrix line
+sep_line, = ax.plot([], [], "k-", lw=2, label="Separatrix")
+ax.legend(loc="upper right")
+
+
+def drift_phase_per_turn(dE_grid, K0):
+    """
+    Returns dphi/dturn caused by the drift, using the same model as the particles.
+    """
+
+    E0_total = K0 + mp
+    gamma0 = E0_total / mp
+    beta0 = np.sqrt(1 - 1 / gamma0**2)
+    p0 = np.sqrt(E0_total**2 - mp**2)
+    T0 = L0 / (beta0 * c)
+    T_rf_ns = (T0 / h) * 1e9
+
+    K = K0 + dE_grid
+    E_total = K + mp
+    gamma = E_total / mp
+    beta = np.sqrt(1 - 1 / gamma**2)
+    p = np.sqrt(E_total**2 - mp**2)
+
+    delta = (p - p0) / p0
+    L = L0 * (1 + alpha_p * delta)
+    T = L / (beta * c)
+
+    F_ns = (T - T0) * 1e9
+
+    return 2 * np.pi * F_ns / T_rf_ns
+
+def accelerating_separatrix(K0, Vrf, phi_ref, dE_max=0.4):
+    """
+    Computes the accelerating bucket separatrix using the same nonlinear drift
+    model as the simulation.
+    """
+
+    if Vrf <= 0:
+        return np.array([]), np.array([])
+
+    # Energy grid
+    dE_grid = np.linspace(-dE_max, dE_max, 4001)
+
+    # Exact drift term from your code
+    phi_dot = drift_phase_per_turn(dE_grid, K0)
+
+    # Integrate phi_dot with respect to dE
+    H_E = np.zeros_like(dE_grid)
+    zero_index = np.argmin(np.abs(dE_grid))
+
+    for j in range(zero_index + 1, len(dE_grid)):
+        H_E[j] = H_E[j-1] + 0.5 * (
+            phi_dot[j] + phi_dot[j-1]
+        ) * (dE_grid[j] - dE_grid[j-1])
+
+    for j in range(zero_index - 1, -1, -1):
+        H_E[j] = H_E[j+1] - 0.5 * (
+            phi_dot[j] + phi_dot[j+1]
+        ) * (dE_grid[j+1] - dE_grid[j])
+
+    # RF potential
+    def H_phi(phi):
+        return Vrf * (np.cos(phi) + phi * np.sin(phi_ref))
+
+    # Unstable fixed point
+    phi_u = np.pi - phi_ref
+
+    while phi_u > phi_ref:
+        phi_u -= 2 * np.pi
+
+    H_sep = H_phi(phi_u)
+
+    phi_grid = np.linspace(phi_u, phi_u + 2*np.pi, 1500)
+
+    needed_energy_H = H_sep - H_phi(phi_grid)
+
+    # Split positive and negative branches
+    pos = dE_grid >= 0
+    neg = dE_grid <= 0
+
+    H_pos = H_E[pos]
+    dE_pos = dE_grid[pos]
+
+    H_neg = H_E[neg][::-1]
+    dE_neg = dE_grid[neg][::-1]
+
+    dE_upper = np.full_like(phi_grid, np.nan)
+    dE_lower = np.full_like(phi_grid, np.nan)
+
+    valid_upper = (needed_energy_H >= H_pos.min()) & (needed_energy_H <= H_pos.max())
+    valid_lower = (needed_energy_H >= H_neg.min()) & (needed_energy_H <= H_neg.max())
+
+    dE_upper[valid_upper] = np.interp(
+        needed_energy_H[valid_upper],
+        H_pos,
+        dE_pos
+    )
+
+    dE_lower[valid_lower] = np.interp(
+        needed_energy_H[valid_lower],
+        H_neg,
+        dE_neg
+    )
+
+    # Current RF bucket spacing
+    E0_total = K0 + mp
+    gamma0 = E0_total / mp
+    beta0 = np.sqrt(1 - 1 / gamma0**2)
+    T0 = L0 / (beta0 * c)
+    T_rf_ns = (T0 / h) * 1e9
+
+    time_grid = (phi_grid - phi_ref) * T_rf_ns / (2*np.pi)
+
+    x = np.concatenate([time_grid, time_grid[::-1]])
+    y = np.concatenate([dE_upper, dE_lower[::-1]])
+
+    good = np.isfinite(x) & np.isfinite(y)
+
+    return x[good], y[good]
+
 def update(frame):
     global time, dE, current_turn, K0
 
@@ -126,7 +246,7 @@ def update(frame):
 
         # nonlinear model when ramp_shape^n | linear when multiplied by const
         r = min(current_turn / ramp_turns, 1.0)
-        ramp_shape = r**2
+        ramp_shape = r**1.5
         Vrf = Vrf_initial + (Vrf_final - Vrf_initial) * ramp_shape
         
         # RF kick with accelerating reference phase
@@ -167,6 +287,15 @@ def update(frame):
         current_turn += 1
 
     sc.set_offsets(np.column_stack((time, dE * 1000)))
+    
+    sep_x, sep_y = accelerating_separatrix(
+        K0=K0,
+        Vrf=Vrf,
+        phi_ref=phi_ref,
+        dE_max=0.4
+    )
+
+    sep_line.set_data(sep_x, sep_y * 1000)
 
     title.set_text(
         f"Turn {current_turn}, "
@@ -174,15 +303,16 @@ def update(frame):
         f"K0 = {K0:.3f} GeV"
     )
 
-    return sc, title
+    return sc, title, sep_line
 
 turns_per_frame = 100
 n_frames = 500
 
 def init():
     sc.set_offsets(np.column_stack((time, dE * 1000)))
+    sep_line.set_data([], [])
     title.set_text(f"Turn {current_turn}")
-    return sc, title
+    return sc, title, sep_line
 
 ani = FuncAnimation(
     fig,
