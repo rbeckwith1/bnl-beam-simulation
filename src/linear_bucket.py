@@ -205,7 +205,6 @@ Vrf = Vrf_initial
 
 # -----------------------------
 # Initial small filled ellipse
-# Initial matched bunch size
 dE_initial_bucket = 0.003  # GeV
 
 a0 = abs(linear_drift_slope(K0))
