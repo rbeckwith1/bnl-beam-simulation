@@ -45,7 +45,7 @@ c = 299792458      # m/s
 L0 = 807.1         # m -circumference of AGS
 
 # Reference fractional momentum deviation
-gamma_t = 8.45
+gamma_t = 8.667
 alpha_p = 1 / gamma_t**2
 h = 6
 

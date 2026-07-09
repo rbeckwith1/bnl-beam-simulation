@@ -31,7 +31,7 @@ e_min = np.min(dE) - padding_dE
 e_max = np.max(dE) + padding_dE
 
 # Parameters
-n_turns = 50000
+n_turns = 120000
 k = 0.0005
 
 initial_time = time.copy()
@@ -44,7 +44,7 @@ c = 299792458      # m/s
 L0 = 807.1         # m -circumference of AGS
 
 # Reference fractional momentum deviation
-gamma_t = 8.45
+gamma_t = 8.667
 alpha_p = 1 / gamma_t**2
 h = 6
 
@@ -200,6 +200,51 @@ def accelerating_separatrix(K0, Vrf, phi_ref, dE_max=0.4):
 
     return x[good], y[good]
 
+def smoothstep(r):
+    r = np.clip(r, 0, 1)
+    return 3*r**2 - 2*r**3
+
+
+def acceleration_ramp(Vrf, current_turn, accel_start_turn, accel_ramp_turns, phi_s_final):
+    """
+    Smoothly ramp reference acceleration by ramping synchronous phase.
+
+    Before ramp:
+        phi_s = 0      -> no acceleration
+        phi_ref = pi   -> stationary bucket
+
+    After ramp:
+        phi_s = phi_s_final
+        phi_ref = pi - phi_s
+        dK0_turn = Vrf*sin(phi_s)
+    """
+
+    if current_turn < accel_start_turn:
+        phi_s = 0.0
+    else:
+        r = (current_turn - accel_start_turn) / accel_ramp_turns
+        phi_s = phi_s_final * smoothstep(r)
+
+    dK0_turn = Vrf * np.sin(phi_s)
+
+    phi_ref = np.pi - phi_s
+
+    return dK0_turn, phi_s, phi_ref
+
+def voltage_ramp(turn, Vrf_initial, Vrf_final, ramp_start_turn, ramp_turns):
+    """
+    RF voltage as a function of turn number.
+    """
+
+    if turn < ramp_start_turn:
+        return Vrf_initial
+
+    r = min(current_turn / ramp_turns, 1.0)
+    ramp_shape = r**2
+
+
+    return Vrf_initial + (Vrf_final - Vrf_initial) * ramp_shape
+
 def update(frame):
     global time, dE, current_turn, K0
 
@@ -239,45 +284,45 @@ def update(frame):
         time = time + (T - T0) * 1e9
         time = wrap_to_bucket(time, T_rf_ns)
 
-        # RF voltage ramp
-        Vrf_initial = 0
-        Vrf_final = 320e3 / 1e9
-        ramp_turns = 100000 #number of turns to obtain final voltage
-
-        # nonlinear model when ramp_shape^n | linear when multiplied by const
-        r = min(current_turn / ramp_turns, 1.0)
-        ramp_shape = r**1.5
-        Vrf = Vrf_initial + (Vrf_final - Vrf_initial) * ramp_shape
+        # Choose RF voltage for this turn
+        Vrf = voltage_ramp(turn=current_turn, Vrf_initial=0.0, Vrf_final=320e3 / 1e9,   # GeV
+                           ramp_start_turn=0, ramp_turns=100000)
         
-        # RF kick with accelerating reference phase
-        phi_s = np.deg2rad(30)
+        # Smooth acceleration ramp
+        phi_s_final = np.deg2rad(30)
+        accel_start_turn = 60000
+        accel_ramp_turns = 40000   
+        
+        dK0_turn, phi_s, phi_ref = acceleration_ramp(
+            Vrf=Vrf,
+            current_turn=current_turn,
+            accel_start_turn=accel_start_turn,
+            accel_ramp_turns=accel_ramp_turns,
+            phi_s_final=phi_s_final
+        )
 
-        # Above transition: stable accelerating phase is shifted by pi
-        phi_ref = np.pi - phi_s
-
-        # Particle phase relative to reference particle
-        phi = phi_ref + 2 * np.pi * time / T_rf_ns
-
-        kick = Vrf * np.sin(phi)
-        kick_ref = Vrf * np.sin(phi_ref)
+        # particle RF phase
+        phi = 2 * np.pi * time / T_rf_ns
 
         # Update energy deviation relative to reference
-        dE += kick - kick_ref
+        dE += Vrf * (np.sin(phi_ref + phi) - np.sin(phi_ref))
 
         # Update reference kinetic energy
-        K0 += kick_ref
+        K0 += dK0_turn
 
         # Logging
         log_rows.append({
             "turn": turn_number,
             "K0_GeV": K0,
             "Vrf_kV": Vrf * 1e9 / 1e3,
-
+            "phi_s_deg": np.rad2deg(phi_s),
+            "dK0_turn_GeV": dK0_turn,
+        
             "dE_avg_GeV": np.mean(dE),
             "dE_sigma_GeV": np.std(dE),
             "dE_min_GeV": np.min(dE),
             "dE_max_GeV": np.max(dE),
-
+        
             "time_avg_ns": np.mean(time),
             "time_sigma_ns": np.std(time),
             "time_min_ns": np.min(time),
@@ -306,7 +351,7 @@ def update(frame):
     return sc, title, sep_line
 
 turns_per_frame = 100
-n_frames = 500
+n_frames = 1200
 
 def init():
     sc.set_offsets(np.column_stack((time, dE * 1000)))
