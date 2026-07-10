@@ -2,15 +2,24 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, FFMpegWriter
 import pandas as pd
-from scipy.optimize import brentq
-
 # Initial Longitudinal Phase Space Distribution
-log_rows = []
 
+#start with test particle
 N = 10000                  # Number of particles
 
-n_turns = 10000
+dE = np.random.uniform(-0.02, 0.02, N)  # GeV = ±200 MeV
+time = np.random.uniform(-250, 250, N)    # ns
+
+# Save initial coordinates (coloring particles)
+dE_initial = dE.copy()
+initial_time = time.copy()
+
+# Parameters
+n_turns = 120000
 k = 0.0005
+gamma_t = 8.667 # AGS parameter
+alpha_p = 1 / gamma_t**2 #momentum compaction
+h = 6
 
 # Synchronous particle
 K0 = 24          # GeV -AGS parameter
@@ -18,44 +27,17 @@ mp = 0.938272      # GeV -rest mass of proton
 c = 299792458      # m/s
 L0 = 807.1         # m -circumference of AGS
 
-# Reference fractional momentum deviation
-gamma_t = 8.45
-alpha_p = 1 / gamma_t**2
-
 E0_total = K0 + mp
 gamma0 = E0_total / mp
 beta0 = np.sqrt(1 - 1/gamma0**2)
 p0 = np.sqrt(E0_total**2 - mp**2)
 T0 = L0 / (beta0 * c)
 
-# -----------------------------
-# RF / bucket setup
-h = 6
-Vrf_max = 320e3 / 1e9  # GeV
-
+# RF period
 T_rf_ns = (T0 / h) * 1e9
-
-# -----------------------------
-# Initial filled oval distribution
-bucket_fraction = 1/3
-time_width = bucket_fraction * T_rf_ns
-
-a_t = time_width / 2     # horizontal semi-axis [ns]
-a_E = 0.015            # vertical semi-axis [GeV] 
-
-theta = 2 * np.pi * np.random.rand(N)
-r = np.sqrt(np.random.rand(N))   # sqrt gives uniform filling of ellipse
-
-time = a_t * r * np.cos(theta)
-dE = a_E * r * np.sin(theta)
-
-# Save initial coordinates (used for coloring particles)
-dE_initial = dE.copy()
-initial_time = time.copy()
 
 # Plots
 fig, ax = plt.subplots(figsize=(6,5))
-
 sc = ax.scatter(time, dE * 1000, c=initial_time, cmap="coolwarm", s=3, alpha=0.6)
 
 ax.set_xlim(-T_rf_ns/2, T_rf_ns/2)
@@ -63,237 +45,387 @@ ax.set_ylim(-275, 275)
 ax.set_xlabel("Arrival Time Deviation (ns)")
 ax.set_ylabel("Energy Deviation (MeV)")
 ax.grid(True)
-
 title = ax.set_title("Turn 0")
+log_rows = []
 
+# Initialize
 current_turn = 0
-
-sep_line_plus, = ax.plot([], [], "k-", linewidth=2, label="Separatrix")
-sep_line_minus, = ax.plot([], [], "k-", linewidth=2)
-ax.legend()
-
 
 def wrap_to_bucket(time_ns, T_rf_ns):
     """
-    Wrap time into one RF bucket centered at 0:
+    Wrap arrival-time deviation into one RF bucket:
     [-T_rf/2, +T_rf/2)
     """
     return ((time_ns + T_rf_ns/2) % T_rf_ns) - T_rf_ns/2
 
-def F_(dE):
+# Separatrix line
+sep_line, = ax.plot([], [], "k-", lw=2, label="Separatrix")
+ax.legend(loc="upper right")
+
+
+def drift_phase_per_turn(dE_grid, K0):
     """
-    Exact drift Hamiltonian term F(dE), where dF/ddE = (T(dE)-T0)*1e9.
-    dE is in GeV.
-    F has units ns*GeV/turn.
+    Returns dphi/dturn caused by the drift, using the same model as the particles.
     """
 
-    E0 = K0 + mp
-    P0 = np.sqrt(E0**2 - mp**2)
-    beta0 = P0 / E0
+    E0_total = K0 + mp
+    gamma0 = E0_total / mp
+    beta0 = np.sqrt(1 - 1 / gamma0**2)
+    p0 = np.sqrt(E0_total**2 - mp**2)
     T0 = L0 / (beta0 * c)
+    T_rf_ns = (T0 / h) * 1e9
 
-    E = K0 + dE + mp
-    P = np.sqrt(E**2 - mp**2)
+    K = K0 + dE_grid
+    E_total = K + mp
+    gamma = E_total / mp
+    beta = np.sqrt(1 - 1 / gamma**2)
+    p = np.sqrt(E_total**2 - mp**2)
 
-    return 1e9 * (
-        (L0 / c) * (
-            (1 - alpha_p) * (P - P0)
-            + alpha_p * (E**2 - E0**2) / (2 * P0)
-        )
-        - T0 * dE
+    delta = (p - p0) / p0
+    L = L0 * (1 + alpha_p * delta)
+    T = L / (beta * c)
+
+    F_ns = (T - T0) * 1e9
+
+    return 2 * np.pi * F_ns / T_rf_ns
+
+def accelerating_separatrix(K0, Vrf, phi_ref, dE_max=0.4):
+    """
+    Computes the accelerating bucket separatrix using the same nonlinear drift
+    model as the simulation.
+    """
+
+    if Vrf <= 0:
+        return np.array([]), np.array([])
+
+    # Energy grid
+    dE_grid = np.linspace(-dE_max, dE_max, 4001)
+
+    # Exact drift term from your code
+    phi_dot = drift_phase_per_turn(dE_grid, K0)
+
+    # Integrate phi_dot with respect to dE
+    H_E = np.zeros_like(dE_grid)
+    zero_index = np.argmin(np.abs(dE_grid))
+
+    for j in range(zero_index + 1, len(dE_grid)):
+        H_E[j] = H_E[j-1] + 0.5 * (
+            phi_dot[j] + phi_dot[j-1]
+        ) * (dE_grid[j] - dE_grid[j-1])
+
+    for j in range(zero_index - 1, -1, -1):
+        H_E[j] = H_E[j+1] - 0.5 * (
+            phi_dot[j] + phi_dot[j+1]
+        ) * (dE_grid[j+1] - dE_grid[j])
+
+    # RF potential
+    def H_phi(phi):
+        return Vrf * (np.cos(phi) + phi * np.sin(phi_ref))
+
+    # Unstable fixed point
+    phi_u = np.pi - phi_ref
+
+    while phi_u > phi_ref:
+        phi_u -= 2 * np.pi
+
+    H_sep = H_phi(phi_u)
+
+    phi_grid = np.linspace(phi_u, phi_u + 2*np.pi, 1500)
+
+    needed_energy_H = H_sep - H_phi(phi_grid)
+
+    # Split positive and negative branches
+    pos = dE_grid >= 0
+    neg = dE_grid <= 0
+
+    H_pos = H_E[pos]
+    dE_pos = dE_grid[pos]
+
+    H_neg = H_E[neg][::-1]
+    dE_neg = dE_grid[neg][::-1]
+
+    dE_upper = np.full_like(phi_grid, np.nan)
+    dE_lower = np.full_like(phi_grid, np.nan)
+
+    valid_upper = (needed_energy_H >= H_pos.min()) & (needed_energy_H <= H_pos.max())
+    valid_lower = (needed_energy_H >= H_neg.min()) & (needed_energy_H <= H_neg.max())
+
+    dE_upper[valid_upper] = np.interp(
+        needed_energy_H[valid_upper],
+        H_pos,
+        dE_pos
     )
 
+    dE_lower[valid_lower] = np.interp(
+        needed_energy_H[valid_lower],
+        H_neg,
+        dE_neg
+    )
 
-def G_(q_ns, Vrf):
+    # Current RF bucket spacing
+    E0_total = K0 + mp
+    gamma0 = E0_total / mp
+    beta0 = np.sqrt(1 - 1 / gamma0**2)
+    T0 = L0 / (beta0 * c)
+    T_rf_ns = (T0 / h) * 1e9
+
+    time_grid = (phi_grid - phi_ref) * T_rf_ns / (2*np.pi)
+
+    x = np.concatenate([time_grid, time_grid[::-1]])
+    y = np.concatenate([dE_upper, dE_lower[::-1]])
+
+    good = np.isfinite(x) & np.isfinite(y)
+
+    return x[good], y[good]
+
+def smoothstep(r):
+    r = np.clip(r, 0, 1)
+    return 3*r**2 - 2*r**3
+
+def acceleration_ramp(Vrf, current_turn, accel_start_turn, accel_ramp_turns, phi_s_final):
     """
-    Matches RF kick:
-        dE = dE + Vrf * sin(2*pi*q/T_rf + pi)
-    which equals:
-        dE = dE - Vrf * sin(2*pi*q/T_rf)
-    """
+    Smoothly ramp reference acceleration by ramping synchronous phase.
 
-    omega = 2 * np.pi / T_rf_ns  # rad/ns
+    Before ramp:
+        phi_s = 0      -> no acceleration
+        phi_ref = pi   -> stationary bucket
 
-    return -(Vrf / omega) * np.cos(omega * q_ns)
-
-def separatrix_curve(Vrf, n_points=1000, p_max=0.5):
-    """
-    Exact-Hamiltonian RF bucket separatrix.
-    Returns time in ns and dE in MeV.
-    """
-
-    q_vals = np.linspace(-T_rf_ns / 2, T_rf_ns / 2, n_points)
-    if Vrf <= 0:
-        q_vals = np.linspace(-T_rf_ns / 2, T_rf_ns / 2, n_points)
-        return q_vals, np.full_like(q_vals, np.nan), np.full_like(q_vals, np.nan)
-    
-    # unstable fixed point coordinates
-    q_saddle = T_rf_ns / 2
-    p_saddle = 0.0
-
-    # Hamiltonian of the unstable fixed point
-    H_sep = F_(p_saddle) + G_(q_saddle, Vrf)
-
-    p_plus = np.full_like(q_vals, np.nan)
-    p_minus = np.full_like(q_vals, np.nan)
-
-    for i, q in enumerate(q_vals):
-
-        # F(dE) calculation
-        target = H_sep - G_(q, Vrf)
-
-        # Calculating how far target is from F(dE) calculated in F_
-        def root_func(p):
-            return F_(p) - target
-
-        # Positive branch
-        try:
-            p_plus[i] = brentq(root_func, 0.0, p_max)
-        except ValueError:
-            pass
-
-        # Negative branch
-        try:
-            p_minus[i] = brentq(root_func, -p_max, 0.0)
-        except ValueError:
-            pass
-
-    return q_vals, p_plus * 1000, p_minus * 1000
-
-def resonant_voltage_program(
-    turn,
-    Vrf_max,
-    modulation_start_turn,
-    synch_period_turns,
-    modulation_fraction=0.5
-):
-    """
-    Resonant bunching RF voltage program.
-
-    Vrf oscillates sinusoidally between:
-        Vrf_min = modulation_fraction * Vrf_max
-        Vrf_max
-
-    The modulation period is chosen to match the synchrotron period,
-    i.e. the number of turns for one full phase-space rotation.
-
-    Parameters
-    ----------
-    turn : int
-        Current turn number.
-    Vrf_max : float
-        Maximum RF voltage in GeV.
-    modulation_start_turn : int
-        Turn when resonant modulation begins.
-    synch_period_turns : float
-        Synchrotron oscillation period in turns.
-    modulation_fraction : float
-        Minimum voltage as a fraction of max voltage.
-        Example: 0.5 means Vrf goes from 0.5*Vrf_max to Vrf_max.
+    After ramp:
+        phi_s = phi_s_final
+        phi_ref = pi - phi_s
+        dK0_turn = Vrf*sin(phi_s)
     """
 
+    if current_turn < accel_start_turn:
+        phi_s = 0.0
+    else:
+        r = (current_turn - accel_start_turn) / accel_ramp_turns
+        phi_s = phi_s_final * smoothstep(r)
+
+    dK0_turn = Vrf * np.sin(phi_s)
+
+    phi_ref = np.pi - phi_s
+
+    return dK0_turn, phi_s, phi_ref
+
+def voltage_ramp(turn, Vrf_initial, Vrf_final, ramp_start_turn, ramp_turns):
+    """
+    RF voltage as a function of turn number.
+    """
+
+    if turn < ramp_start_turn:
+        return Vrf_initial
+
+    r = min(current_turn / ramp_turns, 1.0)
+    ramp_shape = r**2
+
+
+    return Vrf_initial + (Vrf_final - Vrf_initial) * ramp_shape
+
+# ==================================================================
+# Resonant-model additions: exact one-turn map, synchrotron period,
+# and the sinusoidal voltage-modulation program
+ 
+def one_turn_map(time_ns, dE_GeV, Vrf, K0, phi_ref):
+    """
+    Apply one turn of the *same* exact drift-and-kick map used in update().
+    Used only for finite-difference estimates of the synchrotron tune -
+    kept consistent with the nonlinear physics rather than a separate
+    linearized model, so the resonance condition matches the real bucket.
+    """
+    E0_total = K0 + mp
+    gamma0 = E0_total / mp
+    beta0 = np.sqrt(1 - 1 / gamma0**2)
+    p0_ = np.sqrt(E0_total**2 - mp**2)
+    T0_ = L0 / (beta0 * c)
+    T_rf_ns_ = (T0_ / h) * 1e9
+ 
+    K = K0 + dE_GeV
+    E_total = K + mp
+    gamma = E_total / mp
+    beta = np.sqrt(1 - 1 / gamma**2)
+    p = np.sqrt(E_total**2 - mp**2)
+ 
+    delta = (p - p0_) / p0_
+    L = L0 * (1 + alpha_p * delta)
+    T = L / (beta * c)
+ 
+    time_new = time_ns + (T - T0_) * 1e9
+    time_new = wrap_to_bucket(time_new, T_rf_ns_)
+ 
+    phi = 2 * np.pi * time_new / T_rf_ns_
+    dE_new = dE_GeV + Vrf * (np.sin(phi_ref + phi) - np.sin(phi_ref))
+ 
+    return time_new, dE_new
+
+def calculate_linear_synchrotron_period(Vrf, K0, phi_ref=np.pi,
+                                         eps_time=1e-4, eps_energy=1e-8):
+    """
+    Small-amplitude synchrotron period, from the monodromy matrix of the
+    exact one-turn map linearized about the synchronous particle
+    (time = 0, dE = 0). Same eigenvalue approach as before, but built on
+    one_turn_map() above so it stays consistent with the exact separatrix.
+    """
+    t_plus, E_plus = one_turn_map(eps_time, 0.0, Vrf, K0, phi_ref)
+    t_minus, E_minus = one_turn_map(-eps_time, 0.0, Vrf, K0, phi_ref)
+    dtime_dtime = (t_plus - t_minus) / (2 * eps_time)
+    dE_dtime = (E_plus - E_minus) / (2 * eps_time)
+ 
+    t_plus, E_plus = one_turn_map(0.0, eps_energy, Vrf, K0, phi_ref)
+    t_minus, E_minus = one_turn_map(0.0, -eps_energy, Vrf, K0, phi_ref)
+    dtime_dE = (t_plus - t_minus) / (2 * eps_energy)
+    dE_dE = (E_plus - E_minus) / (2 * eps_energy)
+ 
+    M = np.array([
+        [dtime_dtime, dtime_dE],
+        [dE_dtime, dE_dE]
+    ])
+ 
+    eigenvalues = np.linalg.eigvals(M)
+    eigenvalue = eigenvalues[np.argmax(np.imag(eigenvalues))]
+    mu_s = np.abs(np.angle(eigenvalue))
+ 
+    if mu_s == 0:
+        synch_period_turns = np.inf
+    else:
+        synch_period_turns = 2 * np.pi / mu_s
+ 
+    return synch_period_turns, mu_s, M, eigenvalues
+
+
+def resonant_voltage_program(turn, Vrf_max, modulation_start_turn,
+                              modulation_period_turns,
+                              modulation_fraction=0.5, phase_offset=0.0):
+    """
+    Sinusoidally modulate the RF voltage between Vrf_min and Vrf_max.
+    Set modulation_period_turns = synchrotron_period / 2 to drive the
+    2*omega_s parametric resonance.
+    """
     Vrf_min = modulation_fraction * Vrf_max
-
+ 
     if turn < modulation_start_turn:
         return Vrf_min
-
+ 
     tau = turn - modulation_start_turn
+    phase = 2 * np.pi * tau / modulation_period_turns + phase_offset
+    shape = 0.5 * (1 - np.cos(phase))  # stays between Vrf_min and Vrf_max
+ 
+    return Vrf_min + (Vrf_max - Vrf_min) * shape
 
-    # Oscillates between 0 and 1
-    sine_shape = 0.5 * (1 + np.sin(2 * np.pi * tau / synch_period_turns))
+# ------------------------------------------------------------------
+# Resonant voltage-modulation setup
+Vrf_max = 320e3 / 1e9        # GeV, peak RF voltage
+modulation_fraction = 0.8    # Vrf_min = modulation_fraction * Vrf_max
+modulation_start_turn = 0
+phi_ref_static = np.pi       # stationary bucket - no acceleration in this study
+ 
+Vrf_min = modulation_fraction * Vrf_max
+Vrf_mean = 0.5 * (Vrf_min + Vrf_max)
+ 
+synch_period_turns, mu_s, _, _ = calculate_linear_synchrotron_period(
+    Vrf_mean, K0, phi_ref=phi_ref_static)
 
-    return Vrf_min + (Vrf_max - Vrf_min) * sine_shape
+modulation_period_turns = synch_period_turns / 2  # drive at 2*omega_s
+ 
+print(f"Small-amplitude synchrotron period at Vrf_mean: {synch_period_turns:.1f} turns")
+print(f"Voltage modulation period (2*omega_s resonance): {modulation_period_turns:.1f} turns")
 
-stop_sim = False
 
+ 
+# ==================================================================
+# Animation update
+# ==================================================================
 def update(frame):
-    global time, dE, current_turn, stop_sim
-
-    if stop_sim:
-        return sc, title, sep_line_plus, sep_line_minus
-
+    global time, dE, current_turn
+ 
+    if frame == 0:
+        sc.set_offsets(np.column_stack((time, dE * 1000)))
+        title.set_text(f"Turn {current_turn}, Vrf = {Vrf_min * 1e9 / 1e3:.1f} kV, K0 = {K0:.3f} GeV")
+ 
     for i in range(turns_per_frame):
-
+ 
         turn_number = current_turn
-
-        # -----------------------------
-        # Drift update
-        # -----------------------------
+ 
+        # Reference particle (fixed - no acceleration)
+        E0_total = K0 + mp
+        gamma0 = E0_total / mp
+        beta0 = np.sqrt(1 - 1 / gamma0**2)
+        p0 = np.sqrt(E0_total**2 - mp**2)
+        T0 = L0 / (beta0 * c)
+        T_rf_ns = (T0 / h) * 1e9
+ 
+        # Particle drift update (exact, nonlinear)
         K = K0 + dE
         E_total = K + mp
         gamma = E_total / mp
-        beta = np.sqrt(1 - 1/gamma**2)
+        beta = np.sqrt(1 - 1 / gamma**2)
         p = np.sqrt(E_total**2 - mp**2)
-
+ 
         delta = (p - p0) / p0
         L = L0 * (1 + alpha_p * delta)
         T = L / (beta * c)
-
+ 
         time = time + (T - T0) * 1e9
         time = wrap_to_bucket(time, T_rf_ns)
-
-        # -----------------------------
-        # Resonant applied voltage 
-
+ 
+        # Resonant RF voltage program (replaces the old smooth voltage_ramp)
         Vrf = resonant_voltage_program(
-            turn_number,
-            Vrf_max=Vrf_max,              # GeV
-            modulation_start_turn=10,
-            synch_period_turns=5000,      # guess first, then tune
-            modulation_fraction=0.5
-)
-
-        # -----------------------------
+            turn_number, Vrf_max, modulation_start_turn,
+            modulation_period_turns, modulation_fraction
+        )
+ 
+        phi_ref = phi_ref_static  # stationary bucket
+ 
         # RF kick
-
-        
-        phi = 2 * np.pi * h * time / (T0 * 1e9) + np.pi
-        dE = dE + Vrf * np.sin(phi)
-
-        # -----------------------------
-        # Log stats
-        # -----------------------------
+        phi = 2 * np.pi * time / T_rf_ns
+        dE = dE + Vrf * (np.sin(phi_ref + phi) - np.sin(phi_ref))
+ 
+        # Logging
         log_rows.append({
             "turn": turn_number,
-
             "Vrf_kV": Vrf * 1e9 / 1e3,
-
+ 
             "dE_avg_GeV": np.mean(dE),
             "dE_sigma_GeV": np.std(dE),
             "dE_min_GeV": np.min(dE),
             "dE_max_GeV": np.max(dE),
-
+ 
             "time_avg_ns": np.mean(time),
             "time_sigma_ns": np.std(time),
             "time_min_ns": np.min(time),
             "time_max_ns": np.max(time),
         })
-
-            
+ 
         current_turn += 1
-    # -----------------------------
-    # Update particles
-    # -----------------------------
+ 
     sc.set_offsets(np.column_stack((time, dE * 1000)))
-
-    title.set_text(
-        f"Turn {current_turn}, Vrf = {Vrf * 1e9 / 1e3:.1f} kV"
+ 
+    sep_x, sep_y = accelerating_separatrix(
+        K0=K0, Vrf=Vrf, phi_ref=phi_ref, dE_max=0.4
     )
+    sep_line.set_data(sep_x, sep_y * 1000)
+ 
+    title.set_text(f"Turn {current_turn}, Vrf = {Vrf * 1e9 / 1e3:.1f} kV, K0 = {K0:.3f} GeV")
+ 
+    return sc, title, sep_line
 
-    # -----------------------------
-    # Update separatrix
-    # -----------------------------
-    t_sep, dE_plus, dE_minus = separatrix_curve(Vrf)
+turns_per_frame = 100
+n_frames = 1200
 
-    sep_line_plus.set_data(t_sep, dE_plus)
-    sep_line_minus.set_data(t_sep, dE_minus)
+def init():
+    sc.set_offsets(np.column_stack((time, dE * 1000)))
+    sep_line.set_data([], [])
+    title.set_text(f"Turn {current_turn}")
+    return sc, title, sep_line
 
-    return sc, title, sep_line_plus, sep_line_minus
-
-turns_per_frame = 10
-n_frames = 100
-
-ani = FuncAnimation(fig, update, frames=n_frames, interval=30, blit=True)
+ani = FuncAnimation(
+    fig,
+    update,
+    frames=n_frames + 1,
+    init_func=init,
+    interval=30,
+    blit=False
+)
 
 writer = FFMpegWriter(fps=30)
 ani.save("rf_bucket_motion.mp4", writer=writer, dpi=150)

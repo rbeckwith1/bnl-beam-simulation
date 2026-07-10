@@ -7,46 +7,26 @@ import pandas as pd
 #start with test particle
 N = 10000                  # Number of particles
 
-sigma_t = 1             # Arrival time RMS (ns)
-sigma_dE = 0.001           # Energy deviation RMS
-
-
 dE = np.random.uniform(-0.02, 0.02, N)  # GeV = ±200 MeV
 time = np.random.uniform(-250, 250, N)    # ns
 
-# Save initial coordinates (used for coloring particles)
-time_initial = time.copy()
+# Save initial coordinates (coloring particles)
+
 dE_initial = dE.copy()
-
-
-# Fixed Plot Limits
-
-padding_t = 0.5      # ns
-padding_dE = 0.0005  # GeV
-
-t_min = np.min(time) - padding_t
-t_max = np.max(time) + padding_t
-
-e_min = np.min(dE) - padding_dE
-e_max = np.max(dE) + padding_dE
+initial_time = time.copy()
 
 # Parameters
 n_turns = 120000
 k = 0.0005
-
-initial_time = time.copy()
-initial_time = time.copy()
+gamma_t = 8.667 # AGS parameter
+alpha_p = 1 / gamma_t**2 #momentum compaction
+h = 6
 
 # Synchronous particle
 K0 = 24          # GeV -AGS parameter
 mp = 0.938272      # GeV -rest mass of proton
 c = 299792458      # m/s
 L0 = 807.1         # m -circumference of AGS
-
-# Reference fractional momentum deviation
-gamma_t = 8.667
-alpha_p = 1 / gamma_t**2
-h = 6
 
 E0_total = K0 + mp
 gamma0 = E0_total / mp
@@ -59,7 +39,6 @@ T_rf_ns = (T0 / h) * 1e9
 
 # Plots
 fig, ax = plt.subplots(figsize=(6,5))
-
 sc = ax.scatter(time, dE * 1000, c=initial_time, cmap="coolwarm", s=3, alpha=0.6)
 
 ax.set_xlim(-T_rf_ns/2, T_rf_ns/2)
@@ -67,11 +46,11 @@ ax.set_ylim(-275, 275)
 ax.set_xlabel("Arrival Time Deviation (ns)")
 ax.set_ylabel("Energy Deviation (MeV)")
 ax.grid(True)
-
 title = ax.set_title("Turn 0")
-
-current_turn = 0
 log_rows = []
+
+# Initialize
+current_turn = 0
 
 def wrap_to_bucket(time_ns, T_rf_ns):
     """
@@ -204,7 +183,6 @@ def smoothstep(r):
     r = np.clip(r, 0, 1)
     return 3*r**2 - 2*r**3
 
-
 def acceleration_ramp(Vrf, current_turn, accel_start_turn, accel_ramp_turns, phi_s_final):
     """
     Smoothly ramp reference acceleration by ramping synchronous phase.
@@ -290,7 +268,7 @@ def update(frame):
         
         # Smooth acceleration ramp
         phi_s_final = np.deg2rad(30)
-        accel_start_turn = 60000
+        accel_start_turn = 100000000000
         accel_ramp_turns = 40000   
         
         dK0_turn, phi_s, phi_ref = acceleration_ramp(
