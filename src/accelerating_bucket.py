@@ -2,16 +2,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, FFMpegWriter
 import pandas as pd
-# Initial Longitudinal Phase Space Distribution
 
-#start with test particle
+# Initial Longitudinal Phase Space Distribution
 N = 10000                  # Number of particles
 
-dE = np.random.uniform(-0.02, 0.02, N)  # GeV = ±200 MeV
-time = np.random.uniform(-250, 250, N)    # ns
+dE = np.random.uniform(-0.0033, 0.0033, N)  # GeV = ±33 MeV from Gaussian approx w/ 40.33ns = 4*sigma (AGS parameter)
+time = np.random.uniform(-10.1, 10.1, N)    # ns
 
 # Save initial coordinates (coloring particles)
-
 dE_initial = dE.copy()
 initial_time = time.copy()
 
@@ -20,7 +18,7 @@ n_turns = 120000
 k = 0.0005
 gamma_t = 8.667 # AGS parameter
 alpha_p = 1 / gamma_t**2 #momentum compaction
-h = 6
+h = 12
 
 # Synchronous particle
 K0 = 24          # GeV -AGS parameter

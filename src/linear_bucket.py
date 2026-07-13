@@ -2,10 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, FFMpegWriter
 import pandas as pd
+
 # Initial Longitudinal Phase Space Distribution
-
-#start with test particle
-
 N = 10000 # num of particles
 
 K0 = 24
@@ -34,7 +32,7 @@ L0 = 807.1         # m -circumference of AGS
 # Reference fractional momentum deviation
 gamma_t = 8.667
 alpha_p = 1 / gamma_t**2
-h = 6
+h = 12
 
 E0_total = K0 + mp
 gamma0 = E0_total / mp
