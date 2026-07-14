@@ -36,12 +36,58 @@ Vrf_max = 320e3 / 1e9  # GeV
 T_rf_ns = (T0 / h) * 1e9
 
 # -----------------------------
-# Initial filled oval distribution
-bucket_fraction = 1/3
-time_width = bucket_fraction * T_rf_ns
+# Initial filled-ellipse distribution, parameterized by physical inputs
+#
+# The ellipse (t/a_t)^2 + (dE/a_E)^2 <= 1 is filled uniformly (as before,
+# via r = sqrt(rand)). For a uniform-filled ellipse:
+#
+#   sigma_t = a_t / 2         sigma_E = a_E / 2
+#   full area  A = pi * a_t * a_E   [ns * GeV]
+#
+# and because 1 ns * 1 GeV = 1 eV*s exactly (1e-9 s * 1e9 eV), that area IS
+# the longitudinal emittance in eV*s with no extra conversion factor:
+#
+#   emittance_eVs = pi * a_t * a_E
+#
+# Pick whichever two physical quantities you actually know:
+#
+#   "emittance" : sigma_t_ns  +  emittance_eVs   -> a_E solved for
+#   "direct"    : sigma_t_ns  +  sigma_E_MeV      -> a_E set directly
+#
+# NOTE on emittance convention: this uses the *full occupied area*
+# (pi * a_t * a_E), appropriate for a hard-edged uniform ellipse. If your
+# AGS number is quoted as a "4-sigma" or "95%" Gaussian-equivalent
+# emittance, convert it to this convention first (full-area equivalent)
+# before plugging it in here, since this bunch is uniform, not Gaussian.
 
-a_t = time_width / 2     # horizontal semi-axis [ns]
-a_E = 0.015            # vertical semi-axis [GeV] 
+init_mode = "emittance"   # "emittance" or "direct"
+
+if init_mode == "emittance":
+    sigma_t_ns = 5.0          # RMS bunch length [ns]
+    emittance_eVs = 0.20      # full-ellipse emittance [eV*s]
+
+    a_t = 2 * sigma_t_ns                  # [ns]
+    a_E = emittance_eVs / (np.pi * a_t)   # [GeV]
+
+elif init_mode == "direct":
+    sigma_t_ns = 5.0          # RMS bunch length [ns]      <- set this
+    sigma_E_MeV = 7.5         # RMS energy spread [MeV]    <- set this
+
+    a_t = 2 * sigma_t_ns              # [ns]
+    a_E = 2 * (sigma_E_MeV / 1000.0)  # [GeV]
+
+else:
+    raise ValueError("init_mode must be 'emittance' or 'direct'")
+
+implied_emittance_eVs = np.pi * a_t * a_E
+print(f"Initial distribution: a_t = {a_t:.3f} ns, a_E = {a_E*1000:.3f} MeV "
+      f"-> sigma_t = {a_t/2:.3f} ns, sigma_E = {a_E*1000/2:.3f} MeV, "
+      f"emittance = {implied_emittance_eVs:.4f} eV*s")
+
+# Sanity check against the bucket: warn if the ellipse doesn't fit
+if a_t > T_rf_ns / 2:
+    print(f"WARNING: a_t = {a_t:.3f} ns exceeds half the RF bucket "
+          f"({T_rf_ns/2:.3f} ns) -- particles will wrap/overfill the bucket.")
 
 theta = 2 * np.pi * np.random.rand(N)
 r = np.sqrt(np.random.rand(N))   # sqrt gives uniform filling of ellipse
@@ -59,7 +105,8 @@ fig, ax = plt.subplots(figsize=(6,5))
 sc = ax.scatter(time, dE * 1000, c=initial_time, cmap="coolwarm", s=3, alpha=0.6)
 
 ax.set_xlim(-T_rf_ns/2, T_rf_ns/2)
-ax.set_ylim(-275, 275)
+y_margin = 3.0 * a_E * 1000   # scale y-limits to the actual initial spread
+ax.set_ylim(-y_margin, y_margin)
 ax.set_xlabel("Arrival Time Deviation (ns)")
 ax.set_ylabel("Energy Deviation (MeV)")
 ax.grid(True)
