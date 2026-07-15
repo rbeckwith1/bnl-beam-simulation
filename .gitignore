@@ -1,0 +1,5 @@
+results/*/*.csv
+results/*/*.mp4
+results/*/*.png
+__pycache__/
+*.pyc
