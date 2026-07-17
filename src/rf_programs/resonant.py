@@ -23,26 +23,73 @@ import numpy as np
 
 class ResonantProgram:
     def __init__(self, Vrf_mean, mod_depth, omega_s, resonance_ratio=2.0,
-                 detuning=0.0, start_turn=0, ramp_turns=0, mod_phase=0.0):
+                 detuning=0.0, start_turn=0, ramp_turns=0, mod_phase=0.0,
+                 stop_turn=None, rampdown_turns=0):
+        """
+        Parameters
+        ----------
+        stop_turn : int or None
+            Turn at which the modulation begins ramping back down to zero.
+            None (default) => no ramp-down; modulation holds at mod_depth
+            forever once ramp_turns has completed (old behavior, unchanged).
+        rampdown_turns : int
+            Turns over which depth ramps mod_depth -> 0, using the same
+            raised-cosine shape as the ramp-up (zero slope at both ends).
+            rampdown_turns <= 0 with stop_turn set recovers an instantaneous
+            switch-off at stop_turn.
+        """
         self.Vrf_mean = Vrf_mean
         self.mod_depth = mod_depth
         self.omega_mod = resonance_ratio * omega_s * (1.0 + detuning)
         self.start_turn = start_turn
         self.ramp_turns = ramp_turns
         self.mod_phase = mod_phase
+        self.stop_turn = stop_turn
+        self.rampdown_turns = rampdown_turns
 
     def depth_at_turn(self, n):
-        """Effective modulation depth at turn n: 0 before start_turn, then a
-        raised-cosine ramp 0 -> mod_depth over ramp_turns (zero slope at
-        both ends). ramp_turns <= 0 recovers an instantaneous switch-on."""
+        """Effective modulation depth at turn n.
+
+        Phases, in order:
+          0.0                                   for n < start_turn
+          raised-cosine ramp 0 -> mod_depth      over [start_turn, start_turn+ramp_turns]
+          held at mod_depth                      over [start_turn+ramp_turns, stop_turn]
+          raised-cosine ramp mod_depth -> 0       over [stop_turn, stop_turn+rampdown_turns]
+          0.0                                    for n >= stop_turn + rampdown_turns
+
+        If stop_turn is None, the "held" phase simply continues forever
+        (original behavior). ramp_turns/rampdown_turns <= 0 recover
+        instantaneous switch-on/off at their respective turns.
+        """
         if n < self.start_turn:
             return 0.0
-        tau = n - self.start_turn
-        if self.ramp_turns <= 0:
+
+        # ramp-up phase
+        tau_up = n - self.start_turn
+        if self.ramp_turns > 0 and tau_up < self.ramp_turns:
+            ramp_frac = tau_up / self.ramp_turns
+            smooth = 0.5 * (1.0 - np.cos(np.pi * ramp_frac))
+            return self.mod_depth * smooth
+
+        # no ramp-down configured -> hold at full depth indefinitely
+        if self.stop_turn is None:
             return self.mod_depth
-        ramp_frac = min(tau / self.ramp_turns, 1.0)
-        smooth = 0.5 * (1.0 - np.cos(np.pi * ramp_frac))
-        return self.mod_depth * smooth
+
+        # before stop_turn -> holding at full depth
+        if n < self.stop_turn:
+            return self.mod_depth
+
+        # ramp-down phase
+        tau_down = n - self.stop_turn
+        if self.rampdown_turns <= 0:
+            return 0.0
+        if tau_down < self.rampdown_turns:
+            ramp_frac = tau_down / self.rampdown_turns
+            smooth = 0.5 * (1.0 + np.cos(np.pi * ramp_frac))  # 1 -> 0
+            return self.mod_depth * smooth
+
+        # fully ramped down
+        return 0.0
 
     def __call__(self, turn):
         if turn < self.start_turn:

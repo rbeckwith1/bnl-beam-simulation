@@ -24,11 +24,12 @@ os.makedirs(OUT_DIR, exist_ok=True)
 # --- method-specific configuration (this is the only place these live) ---
 Vrf_low = 20e3 / 1e9
 Vrf_high = 320e3 / 1e9
-jump_start_turn = 2000
+jump_start_turn = 500
 jump_turns = 50
 N = 10000
-n_turns = 10000
+n_turns = 1200
 eps_l_ns_GeV = 0.95  # From Brendan
+
 # --- acceleration toggle -------------------------------------------------
 ENABLE_ACCELERATION = True
 ACCEL_START_TURN = jump_start_turn + jump_turns + 2000

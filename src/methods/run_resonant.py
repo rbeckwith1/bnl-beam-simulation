@@ -1,8 +1,5 @@
 """"
-Resonant (parametric) bunching run. Migrated from the original standalone
-script, following the same pattern as run_non_adiabatic.py: shared physics
-comes from core/, and the only things that differ per-method are the
-voltage program (rf_programs/resonant.py) and the config block below.
+Resonant (parametric) bunching run
 
 Physical picture: a matched bunch's envelope (quadrupole/breathing) degree
 of freedom can be parametrically driven when the RF voltage is modulated at
@@ -56,11 +53,11 @@ os.makedirs(OUT_DIR, exist_ok=True)
 Vrf_mean = 240e3 / 1e9           # mean RF voltage used for the modulated run [GeV]
 Vrf_max_machine = 320e3 / 1e9     # hardware ceiling, used only to size the separatrix grid generously
 
-modulation_depth = 0.15           # fractional modulation depth (10-20% suggested)
+modulation_depth = 0.20           # fractional modulation depth (10-20% suggested)
 resonance_ratio = 2.0             # omega_mod = resonance_ratio * omega_s * (1+detuning)
 detuning = 0.0                    # fractional detuning of the modulation frequency
-modulation_start_turn = 2000
-modulation_ramp_turns = 12000     # turns over which depth ramps 0 -> modulation_depth
+modulation_start_turn = 0
+modulation_ramp_turns = 5000     # turns over which depth ramps 0 -> modulation_depth
                                    # (0 = instantaneous switch-on; >0 = smooth ramp)
 modulation_phase = 0.0            # modulation phase offset [rad] -- see NOTE in rf_programs/resonant.py
 
@@ -69,18 +66,48 @@ initial_time_mismatch = 1.05      # >1.0 makes the initial ellipse a monopole+qu
 initial_energy_mismatch = 1.0     # keep at 1.0 to isolate the effect of the time mismatch
 
 N = 10000
-n_turns = 30000
-eps_l_ns_GeV = 0.95 # from Brendan
+n_turns = 18000 # max turns or # of turns if stop_after_best_compression = off
+eps_l_ns_GeV = 0.95  # from Brendan
 
-# --- acceleration toggle -------------------------------------------------
-# Flip ENABLE_ACCELERATION to turn the reference-particle energy ramp on/off.
-# ACCEL_START_TURN defaults to after the modulation ramp has fully switched
-# on (modulation_start_turn + modulation_ramp_turns), plus slack, so you're
-# not trying to grow/damp the envelope resonance and ramp energy at the
-# same time on your first pass -- shift it earlier once you actually want
-# to study that overlap.
+# --- shared machinery (needs to exist before we can compute omega_s) ----
+kinematics.print_summary()
+
+a_coef = compute_a_coefficient()
+b_coef = compute_b_coefficient(Vrf_mean)
+check_fixed_point_stability(a_coef, b_coef)
+
+omega_s, T_s_turns, a_coef, b_coef = get_omega_s(Vrf_mean)
+
+# --- resonant modulation schedule -----------------------------------------
+T_best = 20000
+buffer_turns = 0
+mod_stop_turn = T_best + buffer_turns
+mod_rampdown_turns = modulation_ramp_turns/2  # symmetric with ramp-up; adjust if needed
+
+voltage_program = ResonantProgram(
+    Vrf_mean, modulation_depth, omega_s,
+    resonance_ratio=resonance_ratio, detuning=detuning,
+    start_turn=modulation_start_turn, ramp_turns=modulation_ramp_turns,
+    mod_phase=modulation_phase,
+    stop_turn=mod_stop_turn, rampdown_turns=mod_rampdown_turns,
+)
+
+print(f"Modulation target: omega_mod = {resonance_ratio}*omega_s*(1+{detuning}) "
+      f"= {voltage_program.omega_mod:.6e} rad/turn")
+print(f"Modulation period: {2.0 * np.pi / voltage_program.omega_mod:.3f} turns "
+      f"(compare to T_s/2 = {T_s_turns / 2:.3f} turns)")
+print(f"Modulation hold: turns [{modulation_start_turn + modulation_ramp_turns}, "
+      f"{mod_stop_turn}], ramp-down [{mod_stop_turn}, {mod_stop_turn + mod_rampdown_turns}]")
+
+# --- acceleration toggle ---------------------------------------------------
+# Starts only after the modulation has fully ramped down AND the bunch has
+# had time to settle onto the static (unmodulated) separatrix. Check your
+# Q1/Q2/theta_Q diagnostics relax_margin is big
+# enough -- if the envelope is still ringing when acceleration kicks in,
+# increase this.
+relax_margin = int(3 * T_s_turns)  # a few synchrotron periods to settle
 ENABLE_ACCELERATION = False
-ACCEL_START_TURN = modulation_start_turn + modulation_ramp_turns + 2000
+ACCEL_START_TURN = mod_stop_turn + mod_rampdown_turns + relax_margin
 ACCEL_RAMP_TURNS = 5000
 PHI_S_FINAL_DEG = 30
 
@@ -91,36 +118,11 @@ acceleration_program = AccelerationProgram(
     enabled=ENABLE_ACCELERATION,
 )
 
-# --- shared machinery ---
-kinematics.print_summary()
-
-a_coef = compute_a_coefficient()
-b_coef = compute_b_coefficient(Vrf_mean)
-check_fixed_point_stability(a_coef, b_coef)
-
-omega_s, T_s_turns, a_coef, b_coef = get_omega_s(Vrf_mean)
-
-voltage_program = ResonantProgram(
-    Vrf_mean, modulation_depth, omega_s,
-    resonance_ratio=resonance_ratio, detuning=detuning,
-    start_turn=modulation_start_turn, ramp_turns=modulation_ramp_turns,
-    mod_phase=modulation_phase,
-)
-
-print(f"Modulation target: omega_mod = {resonance_ratio}*omega_s*(1+{detuning}) "
-      f"= {voltage_program.omega_mod:.6e} rad/turn")
-print(f"Modulation period: {2.0 * np.pi / voltage_program.omega_mod:.3f} turns "
-      f"(compare to T_s/2 = {T_s_turns / 2:.3f} turns)")
-
 if ENABLE_ACCELERATION and ACCEL_START_TURN >= n_turns:
     print(f"NOTE: ACCEL_START_TURN ({ACCEL_START_TURN}) >= n_turns ({n_turns}); "
-          f"acceleration is enabled but will never actually start in this run.")
+          f"acceleration is enabled but will never actually start in this run.")  
 
-# Matched-ellipse amplitudes: derived from eps_l via the shared
-# matched_ellipse_amplitudes() helper (same convention as
-# run_non_adiabatic.py), rather than setting a_t directly. This linear
-# relation is used for INITIALIZATION only -- the tracking itself is fully
-# nonlinear.
+
 a_t, a_E = matched_ellipse_amplitudes(eps_l_ns_GeV, a_coef, b_coef)
 print(f"Matched-ellipse initial amplitudes: a_t = {a_t:.3f} ns, "
       f"a_E = {a_E * 1e3:.4f} MeV")
@@ -151,10 +153,6 @@ render_animation(
 )
 
 # --- resonant-specific diagnostic: modulation phase vs. 2*theta_Q -------
-# Not part of the shared plot_1..7 set (core/diagnostics.py) since it's only
-# meaningful for a *modulated* voltage program; this is the plot that
-# actually tells you whether modulation_phase landed on the driving or the
-# damping quadrature.
 mod_phase_series = np.where(
     df.turn >= modulation_start_turn,
     (voltage_program.omega_mod * (df.turn - modulation_start_turn)

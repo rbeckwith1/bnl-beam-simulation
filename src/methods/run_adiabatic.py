@@ -1,8 +1,7 @@
 """
 Adiabatic bunching run.
 
-Vrf_initial: the original ramped from 0 kV with a raw uniform-box
-     initial distribution. This file ramps from Vrf_low (20 kV, matching
+This file ramps from Vrf_low (20 kV, matching
      non_adiabatic) instead, so the matched-ellipse init + synchrotron
      frequency check have a well-defined bucket to match to at turn 0.
 """
@@ -34,16 +33,16 @@ os.makedirs(OUT_DIR, exist_ok=True)
 Vrf_low = 20e3 / 1e9    
 Vrf_high = 320e3 / 1e9
 ramp_start_turn = 0
-ramp_turns = 20000
+ramp_turns = 6000
 
 N = 10000
-n_turns = 80000 #upper bound for search for bunch length minimum
+n_turns = 12000 # max turns or # of turns if stop_after_best_compression = off
 eps_l_ns_GeV = 0.95  # From Brendan
 
 # --- acceleration toggle -----------------
 ENABLE_ACCELERATION = True
-ACCEL_START_TURN = 25000
-ACCEL_RAMP_TURNS = 5000
+ACCEL_START_TURN = 7000
+ACCEL_RAMP_TURNS = 4000
 PHI_S_FINAL_DEG = 30
 
 acceleration_program = AccelerationProgram(
@@ -79,7 +78,7 @@ separatrix = Separatrix(Vrf_max_expected=Vrf_high)
 df, snapshots, time_init_for_color = track_bunch(
     time0, dE0, voltage_program, n_turns, a_t, a_E,
     acceleration_program=acceleration_program,
-    snapshot_every=100, max_frames=400,stop_after_best_compression=True,
+    snapshot_every=100, max_frames=400,stop_after_best_compression=False,
     rows_past_best_to_stop=int(3 * T_s_turns),
 )
 
