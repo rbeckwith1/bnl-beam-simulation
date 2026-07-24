@@ -52,7 +52,7 @@ os.makedirs(OUT_DIR, exist_ok=True)
 
 # --- method-specific configuration (this is the only place these live) ---
 V_max = 320e3 / 1e9     # hardware ceiling, used only to size the separatrix grid generously
-modulation_depth = 0.7
+modulation_depth = 0.5
 V_start = 30e3/1e9 
 
 V_low = V_max - modulation_depth * (V_max - V_start)

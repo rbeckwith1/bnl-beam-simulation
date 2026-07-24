@@ -35,7 +35,7 @@ phi_ref_hold = np.pi - np.deg2rad(phi_s_hold_deg)
 
 jump_out_start_turn = 200   # let the matched bunch sit quietly first, then release
 jump_turns = 5
-dwell_turns = 700
+dwell_turns = 600
 phase_jump_deg = 180.0
 
 N = 10000

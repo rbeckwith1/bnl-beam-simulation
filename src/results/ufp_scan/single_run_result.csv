@@ -1,0 +1,2 @@
+dwell_turns,phase_jump_deg,jump_turns,jump_out_start_turn,min_time_sigma_ns,turn_of_min,eps_growth,valid
+600,180.0,5,200,1.7050790437826098,1786,1403.2778823298904,False
