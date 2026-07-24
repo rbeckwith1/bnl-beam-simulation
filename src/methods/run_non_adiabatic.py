@@ -15,6 +15,8 @@ from core.diagnostics import save_csv, save_standard_plots
 from core.animation import render_animation
 from rf_programs.non_adiabatic import NonAdiabaticProgram
 from core.acceleration import AccelerationProgram
+from core.cartoon_plots import render_storyboard
+
 RNG_SEED = 12345
 np.random.seed(RNG_SEED)
 SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -31,7 +33,7 @@ n_turns = 1200
 eps_l_ns_GeV = 0.95  # From Brendan
 
 # --- acceleration toggle -------------------------------------------------
-ENABLE_ACCELERATION = True
+ENABLE_ACCELERATION = False
 ACCEL_START_TURN = jump_start_turn + jump_turns + 2000
 ACCEL_RAMP_TURNS = 2000
 PHI_S_FINAL_DEG = 30
@@ -57,6 +59,11 @@ if ENABLE_ACCELERATION and ACCEL_START_TURN >= n_turns:
 a_t, a_E = matched_ellipse_amplitudes(eps_l_ns_GeV, a_coef, b_coef)
 time0, dE0 = initial_bunch(N, a_t, a_E)
 separatrix = Separatrix(Vrf_max_expected=Vrf_high)
+
+ENABLE_PLOTS = True
+ENABLE_ANIMATION = False
+
+# --- run ---
 df, snapshots, time_init_for_color = track_bunch(
     time0, dE0, voltage_program, n_turns, a_t, a_E,
     acceleration_program=acceleration_program,
@@ -64,16 +71,45 @@ df, snapshots, time_init_for_color = track_bunch(
     stop_after_best_compression=False,
 )
 save_csv(df, f"{OUT_DIR}/diagnostics.csv")
-save_standard_plots(df, OUT_DIR)
-render_animation(
-    snapshots, time_init_for_color, a_t, a_E, separatrix, T_s_turns,
-    f"{OUT_DIR}/animation.mp4",
-    extra_info=(f"jump: start={jump_start_turn}, dur={jump_turns} turns"
-                + (f" | accel: start={ACCEL_START_TURN}, phi_s->{PHI_S_FINAL_DEG} deg"
-                   if ENABLE_ACCELERATION else "")),
-)
+
+if ENABLE_PLOTS:
+    save_standard_plots(df, OUT_DIR)
+
+if ENABLE_ANIMATION:
+    render_animation(
+        snapshots, time_init_for_color, a_t, a_E, separatrix, T_s_turns,
+        f"{OUT_DIR}/animation.mp4",
+        extra_info=(f"jump: start={jump_start_turn}, dur={jump_turns} turns"
+                    + (f" | accel: start={ACCEL_START_TURN}, phi_s->{PHI_S_FINAL_DEG} deg"
+                       if ENABLE_ACCELERATION else "")),
+    )
+
 print(f"Minimum RMS bunch length: {df.time_sigma_ns.min():.3f} ns "
       f"at turn {df.loc[df.time_sigma_ns.idxmin(), 'turn']:.0f}")
 if ENABLE_ACCELERATION:
     print(f"K0: {kinematics.K0:.6f} GeV -> {df.K0_GeV.iloc[-1]:.6f} GeV "
           f"(phi_s_final={PHI_S_FINAL_DEG} deg, start_turn={ACCEL_START_TURN})")
+    
+
+N_PANELS = 5  # how many turns to show
+ENABLE_CARTOON = True
+
+if ENABLE_CARTOON: 
+    render_storyboard(
+        snapshots, time_init_for_color, a_t, a_E, separatrix, T_s_turns,
+        f"{OUT_DIR}/storyboard.png",
+        n_panels=N_PANELS,
+        ncols=N_PANELS,                   # ncols == n_panels forces a single inline row
+        center_on_bunch=False,            # set True if you want a fixed zoomed window instead
+        suptitle="Non-adiabatic bunching",
+        extra_info=(f"jump: start={jump_start_turn}, dur={jump_turns} turns"
+                    + (f" | accel: start={ACCEL_START_TURN}, phi_s->{PHI_S_FINAL_DEG} deg"
+                       if ENABLE_ACCELERATION else "")),
+    )
+    # vector version for print quality on the poster:
+    render_storyboard(
+        snapshots, time_init_for_color, a_t, a_E, separatrix, T_s_turns,
+        f"{OUT_DIR}/storyboard.pdf",
+        n_panels=N_PANELS, ncols=N_PANELS,
+        suptitle="Non-adiabatic bunching",
+    )

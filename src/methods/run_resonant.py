@@ -41,6 +41,7 @@ from core.diagnostics import save_csv, save_standard_plots
 from core.animation import render_animation
 from rf_programs.resonant import ResonantProgram
 from core.acceleration import AccelerationProgram
+from core.cartoon_plots import render_storyboard
 
 RNG_SEED = 12345
 np.random.seed(RNG_SEED)
@@ -50,14 +51,18 @@ OUT_DIR = os.path.join(SRC_DIR, "results", "resonant")
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # --- method-specific configuration (this is the only place these live) ---
-Vrf_mean = 240e3 / 1e9           # mean RF voltage used for the modulated run [GeV]
-Vrf_max_machine = 320e3 / 1e9     # hardware ceiling, used only to size the separatrix grid generously
+V_max = 320e3 / 1e9     # hardware ceiling, used only to size the separatrix grid generously
+modulation_depth = 0.7
+V_start = 30e3/1e9 
 
-modulation_depth = 0.20           # fractional modulation depth (10-20% suggested)
+V_low = V_max - modulation_depth * (V_max - V_start)
+Vrf_mean = (V_max + V_low) / 2
+depth = (V_max - V_low) / (2 * Vrf_mean)
+
 resonance_ratio = 2.0             # omega_mod = resonance_ratio * omega_s * (1+detuning)
 detuning = 0.0                    # fractional detuning of the modulation frequency
 modulation_start_turn = 0
-modulation_ramp_turns = 5000     # turns over which depth ramps 0 -> modulation_depth
+modulation_ramp_turns = 3000     # turns over which depth ramps 0 -> modulation_depth
                                    # (0 = instantaneous switch-on; >0 = smooth ramp)
 modulation_phase = 0.0            # modulation phase offset [rad] -- see NOTE in rf_programs/resonant.py
 
@@ -66,7 +71,7 @@ initial_time_mismatch = 1.05      # >1.0 makes the initial ellipse a monopole+qu
 initial_energy_mismatch = 1.0     # keep at 1.0 to isolate the effect of the time mismatch
 
 N = 10000
-n_turns = 18000 # max turns or # of turns if stop_after_best_compression = off
+n_turns = 9000 # max turns or # of turns if stop_after_best_compression = off
 eps_l_ns_GeV = 0.95  # from Brendan
 
 # --- shared machinery (needs to exist before we can compute omega_s) ----
@@ -74,22 +79,25 @@ kinematics.print_summary()
 
 a_coef = compute_a_coefficient()
 b_coef = compute_b_coefficient(Vrf_mean)
+b_coef_init = compute_b_coefficient(V_start)
+
 check_fixed_point_stability(a_coef, b_coef)
 
 omega_s, T_s_turns, a_coef, b_coef = get_omega_s(Vrf_mean)
 
 # --- resonant modulation schedule -----------------------------------------
-T_best = 20000
+T_best = 10000
 buffer_turns = 0
 mod_stop_turn = T_best + buffer_turns
-mod_rampdown_turns = modulation_ramp_turns/2  # symmetric with ramp-up; adjust if needed
+mod_rampdown_turns = modulation_ramp_turns/4
 
 voltage_program = ResonantProgram(
-    Vrf_mean, modulation_depth, omega_s,
+    Vrf_mean, depth, omega_s,                     
     resonance_ratio=resonance_ratio, detuning=detuning,
     start_turn=modulation_start_turn, ramp_turns=modulation_ramp_turns,
     mod_phase=modulation_phase,
     stop_turn=mod_stop_turn, rampdown_turns=mod_rampdown_turns,
+    V_start_level=V_start,
 )
 
 print(f"Modulation target: omega_mod = {resonance_ratio}*omega_s*(1+{detuning}) "
@@ -105,10 +113,10 @@ print(f"Modulation hold: turns [{modulation_start_turn + modulation_ramp_turns},
 # Q1/Q2/theta_Q diagnostics relax_margin is big
 # enough -- if the envelope is still ringing when acceleration kicks in,
 # increase this.
-relax_margin = int(3 * T_s_turns)  # a few synchrotron periods to settle
+relax_margin = 0 #int(3 * T_s_turns)  # a few synchrotron periods to settle
 ENABLE_ACCELERATION = False
 ACCEL_START_TURN = mod_stop_turn + mod_rampdown_turns + relax_margin
-ACCEL_RAMP_TURNS = 5000
+ACCEL_RAMP_TURNS = 2000
 PHI_S_FINAL_DEG = 30
 
 acceleration_program = AccelerationProgram(
@@ -123,7 +131,8 @@ if ENABLE_ACCELERATION and ACCEL_START_TURN >= n_turns:
           f"acceleration is enabled but will never actually start in this run.")  
 
 
-a_t, a_E = matched_ellipse_amplitudes(eps_l_ns_GeV, a_coef, b_coef)
+#a_t, a_E = matched_ellipse_amplitudes(eps_l_ns_GeV, a_coef, b_coef)
+a_t, a_E = matched_ellipse_amplitudes(eps_l_ns_GeV, a_coef, b_coef_init)
 print(f"Matched-ellipse initial amplitudes: a_t = {a_t:.3f} ns, "
       f"a_E = {a_E * 1e3:.4f} MeV")
 print(f"Initial mismatch factors: time x{initial_time_mismatch}, "
@@ -131,7 +140,11 @@ print(f"Initial mismatch factors: time x{initial_time_mismatch}, "
 
 time0, dE0 = initial_bunch(N, initial_time_mismatch * a_t, initial_energy_mismatch * a_E)
 
-separatrix = Separatrix(Vrf_max_expected=Vrf_max_machine * (1.0 + modulation_depth))
+separatrix = Separatrix(Vrf_max_expected=V_max * (1.0 + modulation_depth))
+
+ENABLE_PLOTS = True
+ENABLE_ANIMATION = False
+ENABLE_CARTOON = True
 
 # --- run ---
 df, snapshots, time_init_for_color = track_bunch(
@@ -140,17 +153,19 @@ df, snapshots, time_init_for_color = track_bunch(
     snapshot_every=10, max_frames=400,
     stop_after_best_compression=False,
 )
-
 save_csv(df, f"{OUT_DIR}/diagnostics.csv")
-save_standard_plots(df, OUT_DIR)
-render_animation(
-    snapshots, time_init_for_color, a_t, a_E, separatrix, T_s_turns,
-    f"{OUT_DIR}/animation.mp4",
-    extra_info=(f"mod: start={modulation_start_turn}, "
-                f"ramp={modulation_ramp_turns} turns, depth={modulation_depth}"
-                + (f" | accel: start={ACCEL_START_TURN}, phi_s->{PHI_S_FINAL_DEG} deg"
-                   if ENABLE_ACCELERATION else "")),
-)
+
+if ENABLE_PLOTS:
+    save_standard_plots(df, OUT_DIR)
+
+if ENABLE_ANIMATION:
+    render_animation(
+        snapshots, time_init_for_color, a_t, a_E, separatrix, T_s_turns,
+        f"{OUT_DIR}/animation.mp4",
+        extra_info=(f"mod: start={modulation_start_turn}, "
+                    f"ramp={modulation_ramp_turns} turns, depth={modulation_depth}"
+                    + (f" | accel: start={ACCEL_START_TURN}, phi_s->{PHI_S_FINAL_DEG} deg"
+                       if ENABLE_ACCELERATION else "")), )
 
 # --- resonant-specific diagnostic: modulation phase vs. 2*theta_Q -------
 mod_phase_series = np.where(
@@ -161,21 +176,46 @@ mod_phase_series = np.where(
 )
 two_thetaQ_wrapped = (2.0 * df.theta_Q) % (2 * np.pi)
 
-fig, ax = plt.subplots(figsize=(7, 4.5))
-ax.plot(df.turn, mod_phase_series, label="RF modulation phase (mod 2pi)")
-ax.plot(df.turn, two_thetaQ_wrapped, label="2*theta_Q (mod 2pi)")
-ax.set_xlabel("Turn")
-ax.set_ylabel("Phase [rad]")
-ax.set_title("RF modulation phase vs. 2*(bunch orientation phase)")
-ax.legend()
-ax.grid(alpha=0.3)
-fig.tight_layout()
-fig.savefig(f"{OUT_DIR}/plot_8_phase_comparison.png", dpi=140)
-plt.close(fig)
-print(f"  saved {OUT_DIR}/plot_8_phase_comparison.png")
+if ENABLE_PLOTS:
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    ax.plot(df.turn, mod_phase_series, label="RF modulation phase (mod 2pi)")
+    ax.plot(df.turn, two_thetaQ_wrapped, label="2*theta_Q (mod 2pi)")
+    ax.set_xlabel("Turn")
+    ax.set_ylabel("Phase [rad]")
+    ax.set_title("RF modulation phase vs. 2*(bunch orientation phase)")
+    ax.legend()
+    ax.grid(alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(f"{OUT_DIR}/plot_8_phase_comparison.png", dpi=140)
+    plt.close(fig)
+    print(f"  saved {OUT_DIR}/plot_8_phase_comparison.png")
 
 print(f"Minimum RMS bunch length: {df.time_sigma_ns.min():.3f} ns "
       f"at turn {df.loc[df.time_sigma_ns.idxmin(), 'turn']:.0f}")
+
+N_PANELS = 5
+
+if ENABLE_CARTOON:
+    render_storyboard(
+    snapshots, time_init_for_color, a_t, a_E, separatrix, T_s_turns,
+    f"{OUT_DIR}/storyboard.png",
+    n_panels=N_PANELS,
+    ncols=N_PANELS,                   # <-- ncols == n_panels forces a single row
+    center_on_bunch=False,            # set True if you want a fixed zoomed window instead
+    suptitle="Resonant (parametric) bunching",
+    extra_info=(f"mod: start={modulation_start_turn}, "
+                f"ramp={modulation_ramp_turns} turns, depth={modulation_depth}"
+                + (f" | accel: start={ACCEL_START_TURN}, phi_s->{PHI_S_FINAL_DEG} deg"
+                   if ENABLE_ACCELERATION else "")),
+)
+# also save a vector version for print quality on the poster:
+render_storyboard(
+    snapshots, time_init_for_color, a_t, a_E, separatrix, T_s_turns,
+    f"{OUT_DIR}/storyboard.pdf",
+    n_panels=N_PANELS, ncols=N_PANELS,
+    suptitle="Resonant (parametric) bunching",
+)
+ 
 
 if ENABLE_ACCELERATION:
     print(f"K0: {kinematics.K0:.6f} GeV -> {df.K0_GeV.iloc[-1]:.6f} GeV "

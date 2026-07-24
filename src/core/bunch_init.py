@@ -6,10 +6,6 @@ voltage program for tracking.
 
 Convention: eps_l is the FULL matched-ellipse AREA, eps_l = pi*a_t*a_E, in
 ns*GeV (== eV*s numerically -- GeV=1e9 eV, ns=1e-9 s cancel exactly).
-
-TODO(Rosalyn): confirm with Dr. Brooks whether BNL's Bbat/Bbrat convention
-reports the FULL ellipse area, area/pi ("normalized"), or a 4*sigma area --
-this affects the prefactor used here.
 """
 
 import numpy as np
@@ -32,3 +28,4 @@ def initial_bunch(N, a_t, a_E, rng=None):
     time = a_t * r * np.cos(theta)
     dE = a_E * r * np.sin(theta)
     return time, dE
+

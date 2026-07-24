@@ -83,6 +83,17 @@ class Separatrix:
         t_u = phi_particle_u * T0_ns / (2.0 * np.pi * h)
         return self.G_of_t(t_u, Vrf, phi_ref)
 
+    def unstable_fixed_point_t_ns(self, phi_ref=np.pi):
+        """
+        Time-coordinate (t_ns, deviation from the reference particle) of
+        the unstable fixed point for the given phi_ref. Same convention as
+        separatrix_H/separatrix_dE: phi_ref = pi - phi_s, phi_ref = pi for
+        a stationary bucket. The stable fixed point is always t_ns = 0 in
+        this coordinate.
+        """
+        phi_particle_u = np.pi - 2.0 * phi_ref
+        return phi_particle_u * T0_ns / (2.0 * np.pi * h)
+
     def separatrix_dE(self, t_array, Vrf, phi_ref=np.pi, dE_search_max=None):
         """
         Solve H(t, dE) = H_sep for dE; returns (dE_pos, dE_neg) branches.
@@ -144,5 +155,10 @@ class Separatrix:
                     dE_neg[i] = brentq(lambda e: self.F_of_dE(e) - target, bracket_lo, 0.0)
                 except ValueError as exc:
                     warnings.warn(f"Brent failed (negative branch) at t={t:.3f} ns: {exc}")
-
+        
         return dE_pos, dE_neg
+
+    @property
+    def dE_grid_max(self):
+        return self._dE_grid_max
+    

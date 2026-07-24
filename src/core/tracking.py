@@ -50,7 +50,7 @@ def track_bunch(time0, dE0, voltage_program, n_turns, a_t, a_E,
     time_init_for_color = time0.copy()
 
     rows = []
-    snapshots = {"turns": [], "times": [], "dEs": [], "Vrf": [], "K0": [], "phi_s": []}
+    snapshots = {"turns": [], "times": [], "dEs": [], "Vrf": [], "K0": [], "phi_s": [], "phi_ref": []}
 
     best_time_sigma = np.inf
     best_turn = -1
@@ -116,6 +116,7 @@ def track_bunch(time0, dE0, voltage_program, n_turns, a_t, a_E,
             snapshots["Vrf"].append(Vrf_n)
             snapshots["K0"].append(ref.K0)
             snapshots["phi_s"].append(phi_s)
+            snapshots["phi_ref"].append(phi_ref)
             if max_frames and len(snapshots["turns"]) >= max_frames:
                 pass  # caller's snapshot_every should already respect max_frames
 
