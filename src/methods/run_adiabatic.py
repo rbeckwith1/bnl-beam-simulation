@@ -22,6 +22,7 @@ from core.animation import render_animation
 from rf_programs.adiabatic import AdiabaticProgram
 from core.acceleration import AccelerationProgram
 from core.cartoon_plots import render_storyboard
+from core.stability import add_stability_columns, report_instabilities 
 
 RNG_SEED = 12345
 np.random.seed(RNG_SEED)
@@ -37,8 +38,8 @@ ramp_start_turn = 0
 ramp_turns = 10000
 
 N = 10000
-n_turns = 10000 # max turns or # of turns if stop_after_best_compression = off
-eps_l_ns_GeV = 0.95  # From Brendan
+n_turns = 5000 # max turns or # of turns if stop_after_best_compression = off
+eps_l_ns_GeV = 1.35  
 
 # --- acceleration toggle -----------------
 ENABLE_ACCELERATION = False
@@ -71,7 +72,7 @@ if ENABLE_ACCELERATION and ACCEL_START_TURN >= n_turns:
           f"acceleration is enabled but will never actually start in this run.")
 
 a_t, a_E = matched_ellipse_amplitudes(eps_l_ns_GeV, a_coef, b_coef)
-time0, dE0 = initial_bunch(N, a_t, a_E)
+time0, dE0 = initial_bunch(N, a_t, a_E, method = "uniform", truncate = 6.0)
 
 separatrix = Separatrix(Vrf_max_expected=Vrf_high)
 
@@ -85,6 +86,13 @@ df, snapshots, time_init_for_color = track_bunch(
     snapshot_every=100, max_frames=400, stop_after_best_compression=False,
     rows_past_best_to_stop=int(3 * T_s_turns),
 )
+
+df = add_stability_columns(df, Nb=1.5e12)
+episodes = report_instabilities(df)
+
+print(df['unstable'].sum())   # should be 29 if this matches the earlier CSV
+print(episodes)
+
 save_csv(df, f"{OUT_DIR}/diagnostics.csv")
 
 if ENABLE_PLOTS:

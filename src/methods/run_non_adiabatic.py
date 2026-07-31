@@ -16,6 +16,7 @@ from core.animation import render_animation
 from rf_programs.non_adiabatic import NonAdiabaticProgram
 from core.acceleration import AccelerationProgram
 from core.cartoon_plots import render_storyboard
+from core.stability import add_stability_columns, report_instabilities 
 
 RNG_SEED = 12345
 np.random.seed(RNG_SEED)
@@ -24,13 +25,13 @@ OUT_DIR = os.path.join(SRC_DIR, "results", "non_adiabatic")
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # --- method-specific configuration (this is the only place these live) ---
-Vrf_low = 20e3 / 1e9
+Vrf_low = 30e3 / 1e9
 Vrf_high = 320e3 / 1e9
 jump_start_turn = 500
-jump_turns = 50
+jump_turns = 50 # machine limit? 
 N = 10000
 n_turns = 1200
-eps_l_ns_GeV = 0.95  # From Brendan
+eps_l_ns_GeV = 1.35
 
 # --- acceleration toggle -------------------------------------------------
 ENABLE_ACCELERATION = False
@@ -70,6 +71,13 @@ df, snapshots, time_init_for_color = track_bunch(
     snapshot_every=10, max_frames=400,
     stop_after_best_compression=False,
 )
+
+df = add_stability_columns(df, Nb=1.5e12)
+episodes = report_instabilities(df)
+
+print(df['unstable'].sum())
+print(episodes)
+
 save_csv(df, f"{OUT_DIR}/diagnostics.csv")
 
 if ENABLE_PLOTS:

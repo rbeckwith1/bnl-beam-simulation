@@ -19,7 +19,7 @@ from core.animation import render_animation
 from rf_programs.ufp_capture import UFPReleaseCaptureProgram
 from core.bunch_init import matched_ellipse_amplitudes, initial_bunch
 from core.cartoon_plots import render_storyboard
-
+from core.stability import add_stability_columns, report_instabilities 
 
 RNG_SEED = 12345
 np.random.seed(RNG_SEED)
@@ -35,7 +35,7 @@ phi_ref_hold = np.pi - np.deg2rad(phi_s_hold_deg)
 
 jump_out_start_turn = 200   # let the matched bunch sit quietly first, then release
 jump_turns = 5
-dwell_turns = 600
+dwell_turns = 900
 phase_jump_deg = 180.0
 
 N = 10000
@@ -47,7 +47,9 @@ b_coef = compute_b_coefficient(V_hold)   # valid: computed at phi_ref=pi, before
 check_fixed_point_stability(a_coef, b_coef)
 
 omega_s, T_s_turns, a_coef, b_coef = get_omega_s(V_hold)
-eps_l_ns_GeV = 0.95
+eps_l_ns_GeV = 1.35
+
+
 a_t, a_E = matched_ellipse_amplitudes(eps_l_ns_GeV, a_coef, b_coef)
 print(f"Diagnostic normalization amplitudes: a_t = {a_t:.3f} ns, a_E = {a_E*1e3:.4f} MeV")
 
@@ -80,6 +82,20 @@ df, snapshots, time_init_for_color = track_bunch(
     snapshot_every=10, max_frames=400,
     stop_after_best_compression=False,
 )
+
+df = add_stability_columns(df, Nb=1.5e12)
+episodes = report_instabilities(df)
+
+print(df['unstable'].sum())  
+print(episodes)
+
+# check specifically at your compression minimum
+best_row = df.loc[df["time_sigma_ns"].idxmin()]
+print(best_row[["turn", "time_sigma_ns", "dE_sigma_MeV", "Zon_ohm", "unstable"]])
+
+df.plot(x="turn", y="Zon_ohm", logy=True)
+
+
 save_csv(df, f"{OUT_DIR}/diagnostics.csv")
 
 ENABLE_PLOTS = True
@@ -141,3 +157,5 @@ if ENABLE_CARTOON:
         f"{OUT_DIR}/storyboard.pdf",
         panel_indices=panel_indices, ncols=len(panel_indices),
         suptitle="Unstable fixed point release/capture",    )
+    
+    
