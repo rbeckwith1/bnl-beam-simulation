@@ -41,6 +41,18 @@ from core.diagnostics import save_csv, save_standard_plots
 from core.animation import render_animation
 from rf_programs.resonant import ResonantProgram
 from core.acceleration import AccelerationProgram
+from core.cartoon_plots import render_storyboard
+from core.stability import add_stability_columns, report_instabilities 
+
+plt.rcParams.update({
+    "font.size": 12,          # default font size
+    "axes.titlesize": 12,
+    "axes.labelsize": 12,
+    "xtick.labelsize": 11,
+    "ytick.labelsize": 11,
+    "legend.fontsize": 11,
+    "figure.titlesize": 12
+})
 
 RNG_SEED = 12345
 np.random.seed(RNG_SEED)
@@ -50,46 +62,51 @@ OUT_DIR = os.path.join(SRC_DIR, "results", "resonant")
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # --- method-specific configuration (this is the only place these live) ---
-Vrf_mean = 240e3 / 1e9           # mean RF voltage used for the modulated run [GeV]
-Vrf_max_machine = 320e3 / 1e9     # hardware ceiling, used only to size the separatrix grid generously
+V_max = 320e3 / 1e9     # hardware ceiling, used only to size the separatrix grid generously
+modulation_depth = 0.8
+V_start = 30e3/1e9 
 
-modulation_depth = 0.20           # fractional modulation depth (10-20% suggested)
+V_low = V_max - modulation_depth * (V_max - V_start)
+Vrf_mean = (V_max + V_low) / 2
+depth = (V_max - V_low) / (2 * Vrf_mean)
+
 resonance_ratio = 2.0             # omega_mod = resonance_ratio * omega_s * (1+detuning)
 detuning = 0.0                    # fractional detuning of the modulation frequency
 modulation_start_turn = 0
-modulation_ramp_turns = 5000     # turns over which depth ramps 0 -> modulation_depth
+modulation_ramp_turns = 500     # turns over which depth ramps 0 -> modulation_depth
                                    # (0 = instantaneous switch-on; >0 = smooth ramp)
 modulation_phase = 0.0            # modulation phase offset [rad] -- see NOTE in rf_programs/resonant.py
 
-# Initial bunch mismatch (optional envelope-oscillation seed)
-initial_time_mismatch = 1.05      # >1.0 makes the initial ellipse a monopole+quadrupole seed in t
-initial_energy_mismatch = 1.0     # keep at 1.0 to isolate the effect of the time mismatch
-
 N = 10000
-n_turns = 18000 # max turns or # of turns if stop_after_best_compression = off
-eps_l_ns_GeV = 0.95  # from Brendan
+Nb = 1.5e12 # stability constant - physical number of real protons in bunch (from Brandon)
+
+n_turns = 6000 # max turns or # of turns if stop_after_best_compression = off
+eps_l_ns_GeV = 1.35  
 
 # --- shared machinery (needs to exist before we can compute omega_s) ----
 kinematics.print_summary()
 
 a_coef = compute_a_coefficient()
 b_coef = compute_b_coefficient(Vrf_mean)
+b_coef_init = compute_b_coefficient(V_start)
+
 check_fixed_point_stability(a_coef, b_coef)
 
 omega_s, T_s_turns, a_coef, b_coef = get_omega_s(Vrf_mean)
 
 # --- resonant modulation schedule -----------------------------------------
-T_best = 20000
+T_best = 10000
 buffer_turns = 0
 mod_stop_turn = T_best + buffer_turns
-mod_rampdown_turns = modulation_ramp_turns/2  # symmetric with ramp-up; adjust if needed
+mod_rampdown_turns = modulation_ramp_turns/4
 
 voltage_program = ResonantProgram(
-    Vrf_mean, modulation_depth, omega_s,
+    Vrf_mean, depth, omega_s,                     
     resonance_ratio=resonance_ratio, detuning=detuning,
     start_turn=modulation_start_turn, ramp_turns=modulation_ramp_turns,
     mod_phase=modulation_phase,
     stop_turn=mod_stop_turn, rampdown_turns=mod_rampdown_turns,
+    V_start_level=V_start,
 )
 
 print(f"Modulation target: omega_mod = {resonance_ratio}*omega_s*(1+{detuning}) "
@@ -105,10 +122,10 @@ print(f"Modulation hold: turns [{modulation_start_turn + modulation_ramp_turns},
 # Q1/Q2/theta_Q diagnostics relax_margin is big
 # enough -- if the envelope is still ringing when acceleration kicks in,
 # increase this.
-relax_margin = int(3 * T_s_turns)  # a few synchrotron periods to settle
+relax_margin = 0 #int(3 * T_s_turns)  # a few synchrotron periods to settle
 ENABLE_ACCELERATION = False
 ACCEL_START_TURN = mod_stop_turn + mod_rampdown_turns + relax_margin
-ACCEL_RAMP_TURNS = 5000
+ACCEL_RAMP_TURNS = 2000
 PHI_S_FINAL_DEG = 30
 
 acceleration_program = AccelerationProgram(
@@ -123,15 +140,16 @@ if ENABLE_ACCELERATION and ACCEL_START_TURN >= n_turns:
           f"acceleration is enabled but will never actually start in this run.")  
 
 
-a_t, a_E = matched_ellipse_amplitudes(eps_l_ns_GeV, a_coef, b_coef)
-print(f"Matched-ellipse initial amplitudes: a_t = {a_t:.3f} ns, "
-      f"a_E = {a_E * 1e3:.4f} MeV")
-print(f"Initial mismatch factors: time x{initial_time_mismatch}, "
-      f"energy x{initial_energy_mismatch}")
+#a_t, a_E = matched_ellipse_amplitudes(eps_l_ns_GeV, a_coef, b_coef)
+a_t, a_E = matched_ellipse_amplitudes(eps_l_ns_GeV, a_coef, b_coef_init)
 
-time0, dE0 = initial_bunch(N, initial_time_mismatch * a_t, initial_energy_mismatch * a_E)
+time0, dE0 = initial_bunch(N, a_t, a_E, method = "uniform")
 
-separatrix = Separatrix(Vrf_max_expected=Vrf_max_machine * (1.0 + modulation_depth))
+separatrix = Separatrix(Vrf_max_expected=V_max * (1.0 + modulation_depth))
+
+ENABLE_PLOTS = True
+ENABLE_ANIMATION = False
+ENABLE_CARTOON = True
 
 # --- run ---
 df, snapshots, time_init_for_color = track_bunch(
@@ -141,16 +159,25 @@ df, snapshots, time_init_for_color = track_bunch(
     stop_after_best_compression=False,
 )
 
+df = add_stability_columns(df, Nb=Nb)
+episodes = report_instabilities(df)
+
+print(df['unstable'].sum())
+print(episodes)
+
 save_csv(df, f"{OUT_DIR}/diagnostics.csv")
-save_standard_plots(df, OUT_DIR)
-render_animation(
-    snapshots, time_init_for_color, a_t, a_E, separatrix, T_s_turns,
-    f"{OUT_DIR}/animation.mp4",
-    extra_info=(f"mod: start={modulation_start_turn}, "
-                f"ramp={modulation_ramp_turns} turns, depth={modulation_depth}"
-                + (f" | accel: start={ACCEL_START_TURN}, phi_s->{PHI_S_FINAL_DEG} deg"
-                   if ENABLE_ACCELERATION else "")),
-)
+
+if ENABLE_PLOTS:
+    save_standard_plots(df, OUT_DIR)
+
+if ENABLE_ANIMATION:
+    render_animation(
+        snapshots, time_init_for_color, a_t, a_E, separatrix, T_s_turns,
+        f"{OUT_DIR}/animation.mp4",
+        extra_info=(f"mod: start={modulation_start_turn}, "
+                    f"ramp={modulation_ramp_turns} turns, depth={modulation_depth}"
+                    + (f" | accel: start={ACCEL_START_TURN}, phi_s->{PHI_S_FINAL_DEG} deg"
+                       if ENABLE_ACCELERATION else "")), )
 
 # --- resonant-specific diagnostic: modulation phase vs. 2*theta_Q -------
 mod_phase_series = np.where(
@@ -161,21 +188,115 @@ mod_phase_series = np.where(
 )
 two_thetaQ_wrapped = (2.0 * df.theta_Q) % (2 * np.pi)
 
-fig, ax = plt.subplots(figsize=(7, 4.5))
-ax.plot(df.turn, mod_phase_series, label="RF modulation phase (mod 2pi)")
-ax.plot(df.turn, two_thetaQ_wrapped, label="2*theta_Q (mod 2pi)")
-ax.set_xlabel("Turn")
-ax.set_ylabel("Phase [rad]")
-ax.set_title("RF modulation phase vs. 2*(bunch orientation phase)")
-ax.legend()
-ax.grid(alpha=0.3)
-fig.tight_layout()
-fig.savefig(f"{OUT_DIR}/plot_8_phase_comparison.png", dpi=140)
-plt.close(fig)
-print(f"  saved {OUT_DIR}/plot_8_phase_comparison.png")
+if ENABLE_PLOTS:
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    ax.plot(df.turn, mod_phase_series, label="RF modulation phase (mod 2pi)")
+    ax.plot(df.turn, two_thetaQ_wrapped, label="2*theta_Q (mod 2pi)")
+    ax.set_xlabel("Turn")
+    ax.set_ylabel("Phase [rad]")
+    ax.set_title("RF modulation phase vs. 2*(bunch orientation phase)")
+    ax.legend()
+    ax.grid(alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(f"{OUT_DIR}/plot_8_phase_comparison.png", dpi=140)
+    plt.close(fig)
+    # print(f"  saved {OUT_DIR}/plot_8_phase_comparison.png")
 
 print(f"Minimum RMS bunch length: {df.time_sigma_ns.min():.3f} ns "
       f"at turn {df.loc[df.time_sigma_ns.idxmin(), 'turn']:.0f}")
+
+N_PANELS = 5
+
+
+if ENABLE_CARTOON:
+    turns_arr = np.asarray(snapshots["turns"])
+    vrf_arr = np.asarray(snapshots["Vrf"])
+
+    # Start looking after the modulation ramp has finished.
+    search_start_turn = modulation_start_turn + modulation_ramp_turns
+    search_start_idx = np.searchsorted(turns_arr, search_start_turn)
+
+    # Locate local maxima and minima in the recorded RF voltage.
+    dvrf = np.diff(vrf_arr)
+
+    peak_indices = np.where(
+        (dvrf[:-1] > 0) & (dvrf[1:] <= 0)
+    )[0] + 1
+
+    trough_indices = np.where(
+        (dvrf[:-1] < 0) & (dvrf[1:] >= 0)
+    )[0] + 1
+
+    # Keep only extrema occurring after the modulation ramp.
+    peak_indices = peak_indices[peak_indices >= search_start_idx]
+    trough_indices = trough_indices[trough_indices >= search_start_idx]
+
+    if len(peak_indices) >= 2:
+        # Use one complete peak-to-peak modulation cycle.
+        first_peak = peak_indices[0]
+
+        later_peaks = peak_indices[peak_indices > first_peak]
+        second_peak = later_peaks[0]
+
+        # Select five frames spanning that full cycle.
+        cycle_indices = np.round(
+            np.linspace(first_peak, second_peak, 5)
+        ).astype(int)
+
+        # Also include one frame immediately before modulation begins.
+        pre_modulation_idx = max(
+            0,
+            np.searchsorted(turns_arr, modulation_start_turn) - 1
+        )
+
+        storyboard_indices = [
+            pre_modulation_idx,
+            *cycle_indices,
+        ]
+
+    else:
+        # Fallback if the saved snapshots do not contain two detectable peaks.
+        # Sample more densely over the post-ramp part of the simulation.
+        storyboard_indices = np.round(
+            np.linspace(
+                search_start_idx,
+                len(turns_arr) - 1,
+                6,
+            )
+        ).astype(int).tolist()
+
+    render_storyboard(
+        snapshots,
+        time_init_for_color,
+        a_t,
+        a_E,
+        separatrix,
+        T_s_turns,
+        f"{OUT_DIR}/storyboard.png",
+        panel_indices=storyboard_indices,
+        ncols=3,
+        center_on_bunch=False,
+        suptitle="Resonant bunching",
+        extra_info=(
+            f"Modulation start: {modulation_start_turn}; "
+            f"ramp duration: {modulation_ramp_turns} turns; "
+            f"modulation depth: {modulation_depth}"
+            + (
+                f"; acceleration start: {ACCEL_START_TURN}; "
+                f"final synchronous phase: {PHI_S_FINAL_DEG} deg"
+                if ENABLE_ACCELERATION
+                else ""
+            )
+        ),
+    )
+# also save a vector version for print quality on the poster:
+render_storyboard(
+    snapshots, time_init_for_color, a_t, a_E, separatrix, T_s_turns,
+    f"{OUT_DIR}/storyboard.pdf",
+    n_panels=N_PANELS, ncols=N_PANELS,
+    suptitle="Resonant bunching",
+)
+ 
 
 if ENABLE_ACCELERATION:
     print(f"K0: {kinematics.K0:.6f} GeV -> {df.K0_GeV.iloc[-1]:.6f} GeV "

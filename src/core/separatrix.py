@@ -1,4 +1,3 @@
-
 """
 Continuous-Hamiltonian approximation to the drift-then-kick map, used only
 to draw the separatrix for diagnostics/animation (see LIMITATION note below
@@ -65,23 +64,60 @@ class Separatrix:
         return (Vrf * (T0_ns / (2.0 * np.pi * h)) * np.cos(phase)
                 + Vrf * np.sin(phi_ref) * t_ns)
 
+    @staticmethod
+    def _unstable_phi_particle(phi_ref):
+        """
+        The kick sin(phi_ref + phi_particle) = sin(phi_ref) has two
+        solutions per period: phi_particle = 0 (trivial) and
+        phi_particle = pi - 2*phi_ref (the other branch). WHICH of these is
+        the stable vs. unstable fixed point is not fixed by convention --
+        it depends on the sign of cos(phi_ref):
+
+          cos(phi_ref) < 0  -> phi_particle=0 is the SFP, pi-2*phi_ref is the UFP
+                               (the normal/original regime, e.g. phi_ref=pi
+                               for a stationary bucket, cos(pi)=-1)
+          cos(phi_ref) > 0  -> the roles SWAP: phi_particle=0 becomes the
+                               UFP and pi-2*phi_ref becomes the SFP.
+
+        This matters whenever phi_ref is deliberately jumped across the
+        +/-90 deg boundary (cos(phi_ref)=0), e.g. a 180 deg UFP-capture
+        phase jump -- the "pi - 2*phi_ref" formula alone doesn't know the
+        swap happened, since it's periodic in phi_ref with period pi, one
+        octave short of the physical 2*pi periodicity. Methods that never
+        cross that boundary (adiabatic/non_adiabatic/resonant, where
+        |phi_s| stays well under 90 deg) never notice this; UFP-capture
+        does it on purpose.
+        """
+        if np.cos(phi_ref) < 0:
+            return np.pi - 2.0 * phi_ref
+        return 0.0
+
     def separatrix_H(self, Vrf, phi_ref=np.pi):
         """
-        H at the unstable fixed point. For a stationary bucket (phi_ref=pi)
-        that's the traditional t_u = T0_ns/(2h). For an accelerating bucket
-        the unstable fixed point (in absolute RF phase) sits at
-        pi - phi_ref, i.e. at deviation-phase phi_particle_u = pi - 2*phi_ref
-        relative to the reference particle -- solved from
-        sin(phi_ref + phi_particle) = sin(phi_ref) (the kick vanishing
-        condition), same result as the phi_u = pi - phi_ref convention used
-        for the accelerating-bucket separatrix in the original script.
-        G_of_t is periodic in t_ns with period T_rf_ns, so it doesn't matter
-        that this t_u differs by a half-integer number of periods from the
-        old formula at phi_ref=pi -- they land on the same G value.
+        H at the unstable fixed point (see _unstable_phi_particle for how
+        the correct branch is selected). For a stationary bucket
+        (phi_ref=pi) that's the traditional t_u = T0_ns/(2h). G_of_t is
+        periodic in t_ns with period T_rf_ns, so it doesn't matter that
+        this t_u differs by a half-integer number of periods from the old
+        formula at phi_ref=pi -- they land on the same G value.
         """
-        phi_particle_u = np.pi - 2.0 * phi_ref
+        phi_particle_u = self._unstable_phi_particle(phi_ref)
         t_u = phi_particle_u * T0_ns / (2.0 * np.pi * h)
         return self.G_of_t(t_u, Vrf, phi_ref)
+
+    def unstable_fixed_point_t_ns(self, phi_ref=np.pi):
+        """
+        Time-coordinate (t_ns, deviation from the reference particle) of
+        the unstable fixed point for the given phi_ref. Same convention as
+        separatrix_H/separatrix_dE: phi_ref = pi - phi_s, phi_ref = pi for
+        a stationary bucket. NOTE: the stable fixed point is t_ns = 0 only
+        while cos(phi_ref) < 0 (the normal regime) -- past a +/-90 deg
+        phase jump the roles swap and this method (correctly) starts
+        returning 0.0, since 0 becomes the new UFP. See
+        _unstable_phi_particle.
+        """
+        phi_particle_u = self._unstable_phi_particle(phi_ref)
+        return phi_particle_u * T0_ns / (2.0 * np.pi * h)
 
     def separatrix_dE(self, t_array, Vrf, phi_ref=np.pi, dE_search_max=None):
         """
@@ -146,3 +182,7 @@ class Separatrix:
                     warnings.warn(f"Brent failed (negative branch) at t={t:.3f} ns: {exc}")
 
         return dE_pos, dE_neg
+
+    @property
+    def dE_grid_max(self):
+        return self._dE_grid_max

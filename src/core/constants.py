@@ -13,7 +13,7 @@ c = 299792458.0       # speed of light [m/s]
 L0 = 807.1            # AGS circumference [m]
 
 # Transition / momentum compaction
-gamma_t = 8.45
+gamma_t = 8.5
 alpha_p = 1.0 / gamma_t**2
 
 # RF harmonic number

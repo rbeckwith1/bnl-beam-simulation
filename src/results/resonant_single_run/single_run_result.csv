@@ -1,0 +1,2 @@
+V_start_kV,mod_depth,ramp_turns,Vrf_mean_kV,internal_depth,min_time_sigma_ns,turn_of_min,eps_growth,valid
+30,1.103,3000,160.06500000000003,0.999187829944085,2.3088225351486056,3979,-325.50598237940835,True
