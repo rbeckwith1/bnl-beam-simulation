@@ -32,7 +32,7 @@ OUT_DIR = os.path.join(SRC_DIR, "results", "adiabatic")
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # --- method-specific configuration ---
-Vrf_low = 30e3 / 1e9    
+Vrf_low = 15e3 / 1e9    
 Vrf_high = 320e3 / 1e9
 ramp_start_turn = 0
 ramp_turns = 10000
@@ -113,26 +113,28 @@ if ENABLE_ACCELERATION:
     print(f"K0: {kinematics.K0:.6f} GeV -> {df.K0_GeV.iloc[-1]:.6f} GeV "
           f"(phi_s_final={PHI_S_FINAL_DEG} deg, start_turn={ACCEL_START_TURN})")
     
-N_PANELS = 5  # how many turns to show
+N_PANELS = 3
+NCOLS    = 3
+FIG_WIDTH_IN = 6.5   # set to your report's \textwidth
+
 ENABLE_CARTOON = True
 
-if ENABLE_CARTOON: 
+if ENABLE_CARTOON:
     render_storyboard(
-    snapshots, time_init_for_color, a_t, a_E, separatrix, T_s_turns,
-    f"{OUT_DIR}/storyboard.png",
-    n_panels=N_PANELS,
-    ncols=N_PANELS,                   # ncols == n_panels forces a single inline row
-    center_on_bunch=False,            # set True if you want a fixed zoomed window instead
-    suptitle="Adiabatic bunching",
-    extra_info=(f"ramp: start={ramp_start_turn}, dur={ramp_turns} turns "
-                f"({ramp_turns / T_s_turns:.1f} x T_s)"
-                + (f" | accel: start={ACCEL_START_TURN}, phi_s->{PHI_S_FINAL_DEG} deg"
-                   if ENABLE_ACCELERATION else "")),
+        snapshots, time_init_for_color, a_t, a_E, separatrix, T_s_turns,
+        f"{OUT_DIR}/storyboard.png",
+        n_panels=N_PANELS,
+        ncols=NCOLS,
+        center_on_bunch=False,     # True for a fixed zoomed window
+        fig_width_in=FIG_WIDTH_IN,
+        # no suptitle, no extra_info: the caption lives in the report
     )
-    # vector version for print quality on the poster:
+
+    # vector version for the poster
     render_storyboard(
         snapshots, time_init_for_color, a_t, a_E, separatrix, T_s_turns,
         f"{OUT_DIR}/storyboard.pdf",
-        n_panels=N_PANELS, ncols=N_PANELS,
-        suptitle="Adiabatic bunching",
+        n_panels=N_PANELS,
+        ncols=NCOLS,
+        fig_width_in=FIG_WIDTH_IN,
     )

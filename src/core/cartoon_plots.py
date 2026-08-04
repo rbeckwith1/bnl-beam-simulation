@@ -2,11 +2,28 @@
 
 Creates a grid of panels sampled from the same snapshots used by
 core/animation.py. The storyboard shares the animation's time unwrapping,
-energy scaling, color scale, and separatrix calculation so that each panel
-matches the corresponding animation frame.
+energy scaling, and separatrix calculation so that each panel matches the
+corresponding animation frame.
+
+Design notes
+------------
+* Per-panel information is drawn as a title above each panel, never as an
+  inset box, so the separatrix is never occluded.
+* The default colormap is diverging, not cyclic. A cyclic map such as
+  ``twilight`` assigns nearly the same color to the head and the tail of the
+  bunch, which destroys the one thing the coloring is meant to show.
+* Each panel reports the RMS bunch length, so the compression is legible
+  even when the distribution is only a few millimetres across on the page.
+* Axis labels are written once for the whole figure and are shortened
+  automatically when the figure is too small to hold the full wording.
+* The figure is built to an exact physical width (``fig_width_in``) and
+  saved without a tight bounding box, so including it at 100% scale
+  reproduces text at ``font_size_pt``. ``dpi`` changes pixel count only.
 
 Place this file at core/storyboard.py alongside core/animation.py.
 """
+
+import re
 
 import numpy as np
 import matplotlib
@@ -14,22 +31,41 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 
 from core.kinematics import T_rf_ns
 
 
-# -------------------------------------------------------------------------
-# Publication/report plotting defaults
-# -------------------------------------------------------------------------
-plt.rcParams.update({
-    "font.size": 12,
-    "axes.titlesize": 12,
-    "axes.labelsize": 12,
-    "xtick.labelsize": 12,
-    "ytick.labelsize": 12,
-    "legend.fontsize": 12,
-    "figure.titlesize": 14,
-})
+# Rough width of one character as a fraction of the font size, used only for
+# layout estimates, so an approximate value is adequate.
+_CHAR_WIDTH_FRACTION = 0.58
+
+# Vertical advance of one line of text, in units of the font size.
+_LINE_HEIGHT_FRACTION = 1.30
+
+
+def _visible_len(text):
+    """Approximate the rendered character count of a mathtext string."""
+    stripped = text.replace("$", "")
+
+    # Each LaTeX command renders as roughly one glyph.
+    stripped = re.sub(r"\\[A-Za-z]+", "x", stripped)
+
+    # Braces, carets and underscores are markup, not glyphs.
+    stripped = re.sub(r"[{}^_]", "", stripped)
+
+    return len(stripped)
+
+
+def _fit_label(candidates, available_in, em_in):
+    """Return the first candidate label that fits within ``available_in``."""
+    for text in candidates:
+        width_in = _visible_len(text) * _CHAR_WIDTH_FRACTION * em_in
+
+        if width_in <= available_in:
+            return text
+
+    return candidates[-1]
 
 
 def render_storyboard(
@@ -47,6 +83,15 @@ def render_storyboard(
     center_on_bunch=False,
     dpi=300,
     suptitle=None,
+    fig_width_in=7.0,
+    panel_aspect=0.85,
+    font_size_pt=9,
+    show_energy_lines=None,
+    show_sigma_t=None,
+    cmap="coolwarm",
+    marker_size=3.0,
+    marker_alpha=0.55,
+    n_ticks=3,
 ):
     """Render selected longitudinal phase-space snapshots as a static grid.
 
@@ -54,43 +99,77 @@ def render_storyboard(
     ----------
     snapshots : dict
         Recorded simulation snapshots. Expected keys include ``turns``,
-        ``times``, ``dEs``, and ``Vrf``.
+        ``times``, ``dEs``, and ``Vrf``. If a ``sigma_t_ns`` key is present
+        it is used directly; otherwise the RMS bunch length is computed from
+        the unwrapped particle times.
     time_init_for_color : array-like
         Initial particle times used to color the particles consistently.
     a_t : float
         Time-coordinate scale used for the particle color normalization.
     a_E : float
-        Energy-coordinate scale. Retained for compatibility with existing
-        calls to this function.
+        Energy-coordinate scale. Retained for compatibility.
     separatrix : object
         Object providing the ``separatrix_dE`` method.
     T_s_turns : float
-        Synchrotron period in turns. Retained for compatibility with existing
-        calls to this function.
+        Synchrotron period in turns. Retained for compatibility.
     out_path : str
         Output image path.
     n_panels : int, optional
-        Number of evenly spaced panels to select. The first and final recorded
-        frames are included. Ignored when ``panel_indices`` is supplied.
+        Number of evenly spaced panels to select. Ignored when
+        ``panel_indices`` is supplied. For a ramp whose voltage grows
+        roughly exponentially, even spacing in turn number oversamples the
+        beginning; prefer explicit ``panel_indices``.
     panel_indices : list[int] or None, optional
         Explicit snapshot indices to plot.
     ncols : int, optional
-        Number of panels per row. For a report, three columns is recommended.
+        Number of panels per row.
     extra_info : str, optional
-        Additional simulation information displayed beneath the panels.
+        Deprecated and ignored. Put run information in the report caption.
     center_on_bunch : bool, optional
         If True, use one fixed zoomed time window centered on the selected
         particle distributions.
     dpi : int, optional
-        Output resolution.
+        Output resolution in pixels per inch. Does not affect layout.
     suptitle : str or None, optional
-        Overall title displayed above the storyboard.
+        Overall title. Leave as None for a report figure.
+    fig_width_in : float, optional
+        Total figure width in inches. Set to the destination text width and
+        insert the image at 100% scale.
+    panel_aspect : float, optional
+        Panel height divided by panel width.
+    font_size_pt : int, optional
+        Size of every text element, in points. Margins scale with it.
+    show_energy_lines : bool or None, optional
+        Whether to print K_0 and Delta K_0. None decides automatically:
+        shown only if the beam energy changes by more than 0.01 MeV.
+    show_sigma_t : bool, optional
+        Print the RMS bunch length in each panel title.
+    cmap : str, optional
+        Colormap for the initial-time coloring. Use a diverging map so the
+        head and tail of the bunch are distinguishable.
+    marker_size : float, optional
+        Scatter marker area. Small semi-transparent markers show the shape
+        of the distribution; large opaque ones show only a blob.
+    marker_alpha : float, optional
+        Scatter marker opacity.
+    n_ticks : int, optional
+        Approximate number of major ticks per axis.
     """
     if len(snapshots["turns"]) == 0:
         print("Storyboard skipped: no snapshots recorded.")
         return
 
     n_frames = len(snapshots["turns"])
+
+    plt.rcParams.update({
+        "font.size": font_size_pt,
+        "axes.titlesize": font_size_pt,
+        "axes.labelsize": font_size_pt,
+        "xtick.labelsize": font_size_pt,
+        "ytick.labelsize": font_size_pt,
+        "legend.fontsize": font_size_pt,
+        "figure.titlesize": font_size_pt,
+    })
 
     # ---------------------------------------------------------------------
     # Select snapshots
@@ -115,52 +194,7 @@ def render_storyboard(
         raise ValueError("ncols must be at least 1.")
 
     ncols = min(ncols, n_panels)
-
-    # ---------------------------------------------------------------------
-    # Establish common axis scales
-    # ---------------------------------------------------------------------
-    t_sep_array = np.linspace(-T_rf_ns / 2, T_rf_ns / 2, 400)
-
-    margin = 1.0
-    t_plot_lim = margin * (T_rf_ns / 2)
-
-    Vrf_arr = np.asarray(snapshots["Vrf"])
-
-    phi_s_arr = np.asarray(
-        snapshots.get("phi_s", [0.0] * n_frames)
-    )
-
-    phi_ref_arr = np.asarray(
-        snapshots.get(
-            "phi_ref",
-            [np.pi - phi_s for phi_s in phi_s_arr],
-        )
-    )
-
-    i_max = int(np.argmax(Vrf_arr))
-    phi_ref_max = phi_ref_arr[i_max]
-
-    dE_pos_max, dE_neg_max = separatrix.separatrix_dE(
-        t_sep_array,
-        Vrf_arr[i_max],
-        phi_ref=phi_ref_max,
-    )
-
-    all_sep_values = np.concatenate([
-        np.asarray(dE_pos_max),
-        np.asarray(dE_neg_max),
-    ])
-
-    finite_sep_values = all_sep_values[np.isfinite(all_sep_values)]
-
-    if finite_sep_values.size == 0:
-        raise ValueError(
-            "Could not determine the energy-axis range from the separatrix."
-        )
-
-    dE_plot_lim_MeV = (
-        margin * np.max(np.abs(finite_sep_values)) * 1e3
-    )
+    nrows = int(np.ceil(n_panels / ncols))
 
     # ---------------------------------------------------------------------
     # Unwrap particle times exactly as in the animation
@@ -187,6 +221,88 @@ def render_storyboard(
 
         t_plot_frames.append(t_plot)
         running_anchor = np.median(t_plot)
+
+    # ---------------------------------------------------------------------
+    # RMS bunch length per snapshot
+    # ---------------------------------------------------------------------
+    sigma_t_list = snapshots.get("sigma_t_ns")
+
+    if sigma_t_list is None:
+        sigma_t_list = [
+            float(np.std(t_plot_frames[i]))
+            for i in range(n_frames)
+        ]
+
+    # ---------------------------------------------------------------------
+    # Decide whether the energy lines are worth the vertical space
+    # ---------------------------------------------------------------------
+    K0_list = snapshots.get("K0")
+    K0_init = K0_list[0] if K0_list is not None else None
+
+    if show_energy_lines is None:
+        if K0_list is None:
+            show_energy_lines = False
+        else:
+            dK0_MeV_max = max(
+                abs((K0_list[i] - K0_init) * 1e3)
+                for i in panel_indices
+            )
+            show_energy_lines = dK0_MeV_max > 0.01
+
+    phi_s_all = snapshots.get("phi_s", [0.0] * n_frames)
+
+    show_phi_s = any(
+        not np.isclose(phi_s_all[i], 0.0)
+        for i in panel_indices
+    )
+
+    n_title_lines = (
+        2
+        + (1 if show_sigma_t else 0)
+        + (1 if show_phi_s else 0)
+        + (2 if show_energy_lines else 0)
+    )
+
+    # ---------------------------------------------------------------------
+    # Establish common axis scales
+    # ---------------------------------------------------------------------
+    t_sep_array = np.linspace(-T_rf_ns / 2, T_rf_ns / 2, 400)
+
+    margin = 1.0
+    t_plot_lim = margin * (T_rf_ns / 2)
+
+    Vrf_arr = np.asarray(snapshots["Vrf"])
+
+    phi_ref_arr = np.asarray(
+        snapshots.get(
+            "phi_ref",
+            [np.pi - phi_s for phi_s in phi_s_all],
+        )
+    )
+
+    i_max = int(np.argmax(Vrf_arr))
+
+    dE_pos_max, dE_neg_max = separatrix.separatrix_dE(
+        t_sep_array,
+        Vrf_arr[i_max],
+        phi_ref=phi_ref_arr[i_max],
+    )
+
+    all_sep_values = np.concatenate([
+        np.asarray(dE_pos_max),
+        np.asarray(dE_neg_max),
+    ])
+
+    finite_sep_values = all_sep_values[np.isfinite(all_sep_values)]
+
+    if finite_sep_values.size == 0:
+        raise ValueError(
+            "Could not determine the energy-axis range from the separatrix."
+        )
+
+    dE_plot_lim_MeV = (
+        margin * np.max(np.abs(finite_sep_values)) * 1e3
+    )
 
     # ---------------------------------------------------------------------
     # Optional fixed zoom around selected bunch distributions
@@ -216,35 +332,101 @@ def render_storyboard(
         )
 
     # ---------------------------------------------------------------------
-    # Figure layout
+    # Figure geometry
     # ---------------------------------------------------------------------
-    nrows = int(np.ceil(n_panels / ncols))
+    em_in = font_size_pt / 72.0
 
-    # These dimensions make each panel approximately 4.8 × 4.0 inches.
-    # At 12 pt, the text remains legible after inclusion in a report.
-    panel_width = 4.8
-    panel_height = 4.0
+    title_height_in = n_title_lines * _LINE_HEIGHT_FRACTION * em_in
 
-    fig_width = panel_width * ncols + 1.1
-    fig_height = panel_height * nrows
+    wspace = 0.10
 
-    if suptitle:
-        fig_height += 0.45
+    left_in = 0.30 + 2.8 * em_in     # shared y label + y tick labels
+    right_in = 0.34 + 5.4 * em_in    # colorbar, its ticks and its label
+    bottom_in = 0.18 + 2.6 * em_in   # shared x label + x tick labels
+    top_in = (
+        0.10
+        + title_height_in
+        + (1.9 * em_in if suptitle else 0.0)
+    )
 
-    if extra_info:
-        fig_height += 0.45
+    axes_width_in = fig_width_in - left_in - right_in
+
+    if axes_width_in <= 0:
+        raise ValueError(
+            f"fig_width_in={fig_width_in} in is too small at "
+            f"{font_size_pt} pt: margins alone need "
+            f"{left_in + right_in:.2f} in."
+        )
+
+    panel_width_in = axes_width_in / (ncols + wspace * (ncols - 1))
+    panel_height_in = panel_aspect * panel_width_in
+
+    # Rows must be separated by enough room for the titles.
+    hspace = title_height_in / panel_height_in + 0.06
+
+    axes_height_in = panel_height_in * (nrows + hspace * (nrows - 1))
+    fig_height_in = axes_height_in + bottom_in + top_in
+
+    # ---------------------------------------------------------------------
+    # Fit checks
+    # ---------------------------------------------------------------------
+    longest_title_chars = 16
+    min_panel_width_in = longest_title_chars * _CHAR_WIDTH_FRACTION * em_in
+
+    if panel_width_in < min_panel_width_in:
+        needed = (
+            left_in
+            + right_in
+            + min_panel_width_in * (ncols + wspace * (ncols - 1))
+        )
+        print(
+            f"WARNING: panels are {panel_width_in:.2f} in wide but the "
+            f"titles need ~{min_panel_width_in:.2f} in at {font_size_pt} pt. "
+            f"Use fig_width_in >= {needed:.1f}, fewer columns, or a smaller "
+            f"font_size_pt."
+        )
+
+    # Axis labels are shortened rather than clipped when space runs out.
+    y_label = _fit_label(
+        [
+            "Energy deviation [MeV]",
+            "$\\Delta E$ [MeV]",
+            "[MeV]",
+        ],
+        axes_height_in,
+        em_in,
+    )
+
+    x_label = _fit_label(
+        [
+            "Time deviation [ns]",
+            "$\\Delta t$ [ns]",
+            "[ns]",
+        ],
+        axes_width_in,
+        em_in,
+    )
+
+    cbar_label = _fit_label(
+        [
+            "Initial time [ns]",
+            "$t_0$ [ns]",
+            "[ns]",
+        ],
+        axes_height_in,
+        em_in,
+    )
 
     fig, axes = plt.subplots(
         nrows,
         ncols,
-        figsize=(fig_width, fig_height),
+        figsize=(fig_width_in, fig_height_in),
         squeeze=False,
+        sharex=True,
+        sharey=True,
     )
 
     axes = axes.ravel()
-
-    K0_list = snapshots.get("K0")
-    K0_init = K0_list[0] if K0_list is not None else None
 
     scat = None
 
@@ -260,25 +442,21 @@ def render_storyboard(
         turn_snap = snapshots["turns"][snapshot_index]
         Vrf_snap = snapshots["Vrf"][snapshot_index]
 
-        phi_s_snap = snapshots.get(
-            "phi_s",
-            [0.0] * n_frames,
-        )[snapshot_index]
-
-        phi_ref_snap = snapshots.get(
-            "phi_ref",
-            [np.pi - phi_s_snap] * n_frames,
-        )[snapshot_index]
+        phi_s_snap = phi_s_all[snapshot_index]
+        phi_ref_snap = phi_ref_arr[snapshot_index]
 
         scat = ax.scatter(
             t_plot,
             dE_snap * 1e3,
             c=time_init_for_color,
-            cmap="twilight",
-            s=7,
+            cmap=cmap,
+            s=marker_size,
+            alpha=marker_alpha,
+            linewidths=0.0,
             vmin=-a_t,
             vmax=a_t,
             rasterized=True,
+            zorder=2,
         )
 
         t_sep_frame = (
@@ -294,19 +472,14 @@ def render_storyboard(
             dE_search_max=separatrix.dE_grid_max,
         )
 
-        ax.plot(
-            t_sep_frame,
-            np.asarray(dE_pos) * 1e3,
-            "r-",
-            linewidth=2.0,
-        )
-
-        ax.plot(
-            t_sep_frame,
-            np.asarray(dE_neg) * 1e3,
-            "r-",
-            linewidth=2.0,
-        )
+        for branch in (dE_pos, dE_neg):
+            ax.plot(
+                t_sep_frame,
+                np.asarray(branch) * 1e3,
+                "r-",
+                linewidth=1.4,
+                zorder=3,
+            )
 
         if center_on_bunch:
             ax.set_xlim(
@@ -316,141 +489,134 @@ def render_storyboard(
         else:
             ax.set_xlim(-t_plot_lim, t_plot_lim)
 
-        ax.set_ylim(
-            -dE_plot_lim_MeV,
-            dE_plot_lim_MeV,
-        )
+        ax.set_ylim(-dE_plot_lim_MeV, dE_plot_lim_MeV)
 
-        ax.set_xlabel("Time deviation [ns]", fontsize=12)
-        ax.set_ylabel("Energy deviation [MeV]", fontsize=12)
+        ax.xaxis.set_major_locator(MaxNLocator(nbins=n_ticks))
+        ax.yaxis.set_major_locator(MaxNLocator(nbins=n_ticks))
 
         ax.tick_params(
             axis="both",
             which="major",
-            labelsize=12,
+            labelsize=font_size_pt,
         )
 
-        ax.grid(
-            True,
-            linewidth=0.5,
-            alpha=0.25,
-        )
+        ax.grid(True, linewidth=0.5, alpha=0.25)
 
-        K0_line = ""
+        # -----------------------------------------------------------------
+        # Panel title: above the axes, so nothing is hidden
+        # -----------------------------------------------------------------
+        title_lines = [
+            f"Turn = {turn_snap:d}",
+            f"$V_{{\\mathrm{{RF}}}}$ = {Vrf_snap * 1e9 / 1e3:.1f} kV",
+        ]
 
-        if K0_list is not None:
+        if show_sigma_t:
+            title_lines.append(
+                f"$\\sigma_t$ = {sigma_t_list[snapshot_index]:.2f} ns"
+            )
+
+        if show_phi_s:
+            title_lines.append(
+                f"$\\phi_s$ = {np.rad2deg(phi_s_snap):.1f}$^\\circ$"
+            )
+
+        if show_energy_lines and K0_list is not None:
             K0_snap = K0_list[snapshot_index]
             dK0_MeV = (K0_snap - K0_init) * 1e3
 
-            K0_line = (
-                f"\n$K_0$ = {K0_snap:.4f} GeV"
-                f"\n$\\Delta K_0$ = {dK0_MeV:+.2f} MeV"
-            )
+            title_lines.append(f"$K_0$ = {K0_snap:.4f} GeV")
+            title_lines.append(f"$\\Delta K_0$ = {dK0_MeV:+.2f} MeV")
 
-        label = (
-            f"Turn = {turn_snap:d}"
-            f"\n$V_{{\\mathrm{{RF}}}}$ = "
-            f"{Vrf_snap * 1e9 / 1e3:.1f} kV"
-        )
-
-        if not np.isclose(phi_s_snap, 0.0):
-            label += (
-                f"\n$\\phi_s$ = "
-                f"{np.rad2deg(phi_s_snap):.1f}$^\\circ$"
-            )
-
-        label += K0_line
-
-        ax.text(
-            0.03,
-            0.97,
-            label,
-            transform=ax.transAxes,
-            va="top",
-            ha="left",
-            fontsize=12,
+        ax.set_title(
+            "\n".join(title_lines),
+            fontsize=font_size_pt,
             linespacing=1.15,
-            bbox={
-                "boxstyle": "round,pad=0.3",
-                "facecolor": "white",
-                "edgecolor": "0.5",
-                "alpha": 0.88,
-            },
+            pad=3.0,
         )
 
     # ---------------------------------------------------------------------
-    # Hide unused subplot cells
+    # Hide unused cells and restore x tick labels where needed
     # ---------------------------------------------------------------------
     for j in range(n_panels, len(axes)):
         axes[j].axis("off")
 
+        above = j - ncols
+
+        if 0 <= above < n_panels:
+            axes[above].tick_params(axis="x", labelbottom=True)
+
     # ---------------------------------------------------------------------
-    # Shared title, colorbar, and annotation
+    # Shared labels, title and colorbar
     # ---------------------------------------------------------------------
+    left_frac = left_in / fig_width_in
+    right_frac = 1.0 - right_in / fig_width_in
+    bottom_frac = bottom_in / fig_height_in
+    top_frac = 1.0 - top_in / fig_height_in
+
+    fig.subplots_adjust(
+        left=left_frac,
+        right=right_frac,
+        bottom=bottom_frac,
+        top=top_frac,
+        wspace=wspace,
+        hspace=hspace,
+    )
+
+    fig.text(
+        0.5 * (left_frac + right_frac),
+        0.30 * bottom_in / fig_height_in,
+        x_label,
+        ha="center",
+        va="center",
+        fontsize=font_size_pt,
+    )
+
+    fig.text(
+        0.22 * left_in / fig_width_in,
+        0.5 * (bottom_frac + top_frac),
+        y_label,
+        ha="center",
+        va="center",
+        rotation="vertical",
+        fontsize=font_size_pt,
+    )
+
     if suptitle:
         fig.suptitle(
             suptitle,
-            fontsize=14,
-            y=0.985,
+            fontsize=font_size_pt,
+            y=1.0 - 0.30 * (1.9 * em_in) / fig_height_in,
         )
-
-    # Reserve space on the right for the shared colorbar.
-    right_boundary = 0.88
-
-    if extra_info:
-        fig.text(
-            0.46,
-            0.015,
-            extra_info,
-            ha="center",
-            va="bottom",
-            fontsize=12,
-            wrap=True,
-        )
-        bottom_boundary = 0.08
-    else:
-        bottom_boundary = 0.05
-
-    top_boundary = 0.93 if suptitle else 0.97
-
-    fig.subplots_adjust(
-        left=0.08,
-        right=right_boundary,
-        bottom=bottom_boundary,
-        top=top_boundary,
-        wspace=0.30,
-        hspace=0.32,
-    )
 
     if scat is not None:
         cbar_ax = fig.add_axes([
-            0.905,
-            bottom_boundary + 0.03,
-            0.018,
-            top_boundary - bottom_boundary - 0.06,
+            right_frac + 0.28 * right_in / fig_width_in,
+            bottom_frac,
+            0.14 * right_in / fig_width_in,
+            top_frac - bottom_frac,
         ])
 
-        cbar = fig.colorbar(
-            scat,
-            cax=cbar_ax,
-        )
+        cbar = fig.colorbar(scat, cax=cbar_ax)
 
-        cbar.set_label(
-            "Initial time [ns]",
-            fontsize=12,
-        )
+        cbar.locator = MaxNLocator(nbins=n_ticks + 1)
+        cbar.update_ticks()
 
-        cbar.ax.tick_params(
-            labelsize=12,
-        )
+        cbar.set_label(cbar_label, fontsize=font_size_pt)
+        cbar.ax.tick_params(labelsize=font_size_pt)
+        cbar.solids.set_alpha(1.0)
 
-    fig.savefig(
-        out_path,
-        dpi=dpi,
-        bbox_inches="tight",
-        pad_inches=0.08,
+    fig.savefig(out_path, dpi=dpi)
+
+    sigma_first = sigma_t_list[panel_indices[0]]
+    sigma_last = sigma_t_list[panel_indices[-1]]
+
+    print(
+        f"Storyboard saved to: {out_path} | "
+        f"{fig_width_in:.2f} x {fig_height_in:.2f} in | "
+        f"{nrows} x {ncols} grid | "
+        f"panels {panel_width_in:.2f} x {panel_height_in:.2f} in | "
+        f"{font_size_pt} pt | "
+        f"sigma_t {sigma_first:.2f} -> {sigma_last:.2f} ns"
     )
-
-    print(f"Storyboard saved to: {out_path}")
 
     plt.close(fig)

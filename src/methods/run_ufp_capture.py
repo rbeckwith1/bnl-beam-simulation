@@ -35,7 +35,7 @@ phi_ref_hold = np.pi - np.deg2rad(phi_s_hold_deg)
 
 jump_out_start_turn = 200   # let the matched bunch sit quietly first, then release
 jump_turns = 5
-dwell_turns = 900
+dwell_turns = 400
 phase_jump_deg = 180.0
 
 N = 10000
@@ -63,7 +63,7 @@ t_ufp_after_jump = separatrix.unstable_fixed_point_t_ns(
 print(f"New UFP (post-jump) at t = {t_ufp_after_jump:.4f} ns (should be ~0)")
 
 # --- real matched bunch at the SFP, no jitter hacks needed ---
-time0, dE0 = initial_bunch(N, a_t, a_E)   # centered at (0, 0) = the SFP
+time0, dE0 = initial_bunch(N, a_t, a_E,method = "uniform")   # centered at (0, 0) = the SFP
 
 phase_program = UFPReleaseCaptureProgram(
     phi_s_hold_deg=phi_s_hold_deg,
@@ -117,45 +117,58 @@ if ENABLE_ANIMATION:
 print(f"Minimum RMS bunch length: {df.time_sigma_ns.min():.3f} ns "
       f"at turn {df.loc[df.time_sigma_ns.idxmin(), 'turn']:.0f}")
 
-if ENABLE_CARTOON: 
-    snapshot_every = 10  # must match what you passed to track_bunch above
- 
+if ENABLE_CARTOON:
     # Phase boundaries, in turns:
-    release_end_turn = jump_out_start_turn + jump_turns
+    release_end_turn   = jump_out_start_turn + jump_turns
     capture_start_turn = release_end_turn + dwell_turns
-    capture_end_turn = capture_start_turn + jump_turns
-     
-    # Hand-picked turns that tell the release -> dwell -> capture story, since
-    # the two jumps are only 5 turns wide and evenly-spaced panels would very
-    # likely miss them in a ~2900-turn run:
+    capture_end_turn   = capture_start_turn + jump_turns
+
+    # Four states that actually look different from one another:
     panel_turns = [
-        0,                                   # matched bunch sitting at the SFP
-        jump_out_start_turn,                 # just before release
-        release_end_turn + 10,               # just after release, drifting toward old UFP
-        release_end_turn + dwell_turns // 2, # mid-dwell
-        capture_start_turn,                  # just before the capture jump
-        min(capture_end_turn + 50, n_turns - 10),  # just after capture, settling at new SFP
+        0,                                          # matched bunch at the SFP
+        release_end_turn + 10,                      # released, shearing toward the old UFP
+        capture_start_turn,                         # end of dwell, maximum shear
+        min(capture_end_turn + 50, n_turns - 10),   # recaptured, settling at the new SFP
     ]
-    panel_indices = sorted(set(
-        min(t // snapshot_every, len(snapshots["turns"]) - 1) for t in panel_turns
-    ))
-     
+
+    # Map each requested turn to the nearest recorded snapshot. This does not
+    # depend on snapshot_every, so it cannot silently drift out of sync with
+    # what was passed to track_bunch.
+    recorded_turns = np.asarray(snapshots["turns"])
+    panel_indices = sorted({
+        int(np.argmin(np.abs(recorded_turns - t))) for t in panel_turns
+    })
+
+    # The jumps are only jump_turns wide, so confirm the panels landed where
+    # they were meant to before trusting the figure.
+    print("requested turns:", panel_turns)
+    print("actual turns:   ", [int(recorded_turns[i]) for i in panel_indices])
+
+    caption = (
+        f"Release: start={jump_out_start_turn}, duration={jump_turns} turns. "
+        f"Dwell: {dwell_turns} turns. "
+        f"Capture jump: ${phase_jump_deg}^\\circ$ over {jump_turns} turns."
+    )
+    print(caption)
+
+    # Report version: 2 x 2, sized to the text width, no title.
     render_storyboard(
         snapshots, time_init_for_color, a_t, a_E, separatrix, T_s_turns,
         f"{OUT_DIR}/storyboard.png",
         panel_indices=panel_indices,
-        ncols=len(panel_indices),         # single inline row
-        center_on_bunch=False,            # set True if you want a fixed zoomed window instead
-        suptitle="Unstable fixed point release/capture",
-        extra_info=(f"release: start={jump_out_start_turn}, dur={jump_turns} turns | "
-                    f"dwell={dwell_turns} turns | "
-                    f"capture jump: {phase_jump_deg} deg over {jump_turns} turns"),
+        ncols=2,
+        center_on_bunch=False,
+        fig_width_in=7.0,
+        panel_aspect=0.75,
     )
-    # vector version for print quality on the poster:
+
+    # Poster version: one wide row, larger type, vector output.
     render_storyboard(
         snapshots, time_init_for_color, a_t, a_E, separatrix, T_s_turns,
         f"{OUT_DIR}/storyboard.pdf",
-        panel_indices=panel_indices, ncols=len(panel_indices),
-        suptitle="Unstable fixed point release/capture",    )
-    
-    
+        panel_indices=panel_indices,
+        ncols=4,
+        fig_width_in=13.0,
+        font_size_pt=16,
+        suptitle="Unstable fixed point release and capture",
+    )

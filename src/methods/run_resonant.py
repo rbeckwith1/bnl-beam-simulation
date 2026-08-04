@@ -73,14 +73,14 @@ depth = (V_max - V_low) / (2 * Vrf_mean)
 resonance_ratio = 2.0             # omega_mod = resonance_ratio * omega_s * (1+detuning)
 detuning = 0.0                    # fractional detuning of the modulation frequency
 modulation_start_turn = 0
-modulation_ramp_turns = 500     # turns over which depth ramps 0 -> modulation_depth
+modulation_ramp_turns = 3000     # turns over which depth ramps 0 -> modulation_depth
                                    # (0 = instantaneous switch-on; >0 = smooth ramp)
 modulation_phase = 0.0            # modulation phase offset [rad] -- see NOTE in rf_programs/resonant.py
 
 N = 10000
 Nb = 1.5e12 # stability constant - physical number of real protons in bunch (from Brandon)
 
-n_turns = 6000 # max turns or # of turns if stop_after_best_compression = off
+n_turns = 8000 # max turns or # of turns if stop_after_best_compression = off
 eps_l_ns_GeV = 1.35  
 
 # --- shared machinery (needs to exist before we can compute omega_s) ----
@@ -205,7 +205,7 @@ if ENABLE_PLOTS:
 print(f"Minimum RMS bunch length: {df.time_sigma_ns.min():.3f} ns "
       f"at turn {df.loc[df.time_sigma_ns.idxmin(), 'turn']:.0f}")
 
-N_PANELS = 5
+N_PANELS = 4
 
 
 if ENABLE_CARTOON:

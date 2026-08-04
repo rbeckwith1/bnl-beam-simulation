@@ -25,7 +25,7 @@ OUT_DIR = os.path.join(SRC_DIR, "results", "non_adiabatic")
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # --- method-specific configuration (this is the only place these live) ---
-Vrf_low = 30e3 / 1e9
+Vrf_low = 1e3 / 1e9
 Vrf_high = 320e3 / 1e9
 jump_start_turn = 500
 jump_turns = 50 # machine limit? 
@@ -99,7 +99,7 @@ if ENABLE_ACCELERATION:
           f"(phi_s_final={PHI_S_FINAL_DEG} deg, start_turn={ACCEL_START_TURN})")
     
 
-N_PANELS = 5  # how many turns to show
+N_PANELS = 3  # how many turns to show
 ENABLE_CARTOON = True
 
 if ENABLE_CARTOON: 
