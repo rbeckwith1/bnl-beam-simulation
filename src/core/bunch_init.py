@@ -68,22 +68,65 @@ def initial_bunch_gaussian_from_rms(N, sigma_t, sigma_E, truncate=5.0, rng=None)
             bad = r_sigma > truncate
     return time, dE
 
-def initial_bunch_uniform(N, a_t, a_E, rng=None):
-    """N particles uniformly filling the matched ellipse (time [ns], dE [GeV])."""
+def initial_bunch_ellipse_family(N, a_t, a_E, J=1.5, rng=None):
+    """
+    Generate an elliptical phase-space distribution with
+
+        f(t, dE) ∝ [1 - (t/a_t)^2 - (dE/a_E)^2]^(J - 1/2)
+
+    whose time projection is
+
+        I(t) ∝ [1 - (t/a_t)^2]^J.
+
+    J = 0.5 gives a uniformly filled ellipse.
+    """
     rng = rng or np.random
+
+    if J < 0.5:
+        raise ValueError("J must be >= 0.5")
+
+    # Uniform angle around the phase-space ellipse
     theta = 2.0 * np.pi * rng.rand(N)
-    r = np.sqrt(rng.rand(N))
+
+    u = 1.0 - rng.rand(N)**(1.0 / (J + 0.5))
+    r = np.sqrt(u)
+
+    # Convert normalized polar coordinates into
+    # longitudinal phase-space coordinates.
+    #
+    # This gives:
+    #     r^2 = (time/a_t)^2 + (dE/a_E)^2
+
     time = a_t * r * np.cos(theta)
     dE = a_E * r * np.sin(theta)
+
     return time, dE
 
-def initial_bunch(N, a_t, a_E, method="uniform", rng=None, **kwargs):
-    if method == "uniform":
-        return initial_bunch_uniform(N, a_t, a_E, rng=rng)
+# def initial_bunch_uniform(N, a_t, a_E, rng=None):
+#     """N particles uniformly filling the matched ellipse (time [ns], dE [GeV])."""
+#     rng = rng or np.random
+#     theta = 2.0 * np.pi * rng.rand(N)
+#     r = np.sqrt(rng.rand(N))
+#     time = a_t * r * np.cos(theta)
+#     dE = a_E * r * np.sin(theta)
+#     return time, dE
+
+def initial_bunch(N, a_t, a_E, method="ellipse", rng=None, **kwargs):
+
+    if method == "ellipse":
+        return initial_bunch_ellipse_family(
+            N, a_t, a_E, rng=rng, **kwargs
+        )
+
     elif method == "gaussian":
-        return initial_bunch_gaussian(N, a_t, a_E, rng=rng, **kwargs)
+        return initial_bunch_gaussian(
+            N, a_t, a_E, rng=rng, **kwargs
+        )
+
     elif method == "gaussian_rms":
-        return initial_bunch_gaussian_from_rms(N, a_t, a_E, rng=rng, **kwargs)
+        return initial_bunch_gaussian_from_rms(
+            N, a_t, a_E, rng=rng, **kwargs
+        )
+
     else:
         raise ValueError(f"unknown method: {method!r}")
-

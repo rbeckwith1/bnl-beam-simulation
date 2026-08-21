@@ -85,11 +85,11 @@ def render_storyboard(
     suptitle=None,
     fig_width_in=7.0,
     panel_aspect=0.85,
-    font_size_pt=9,
+    font_size_pt=7,
     show_energy_lines=None,
     show_sigma_t=None,
     cmap="coolwarm",
-    marker_size=3.0,
+    marker_size=1.0,
     marker_alpha=0.55,
     n_ticks=3,
 ):
@@ -477,7 +477,7 @@ def render_storyboard(
                 t_sep_frame,
                 np.asarray(branch) * 1e3,
                 "r-",
-                linewidth=1.4,
+                linewidth=0.75,
                 zorder=3,
             )
 

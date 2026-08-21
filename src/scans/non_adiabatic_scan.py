@@ -36,8 +36,8 @@ from core.acceleration import AccelerationProgram
 # ================= SCAN GRID =================
 VRF_HIGH_KV      = 320.0                          # hardware ceiling, fixed
 VRF_LOW_KV_LIST  = np.linspace(1, 200, 19)       # PRIMARY axis
-JUMP_TURNS_LIST = [5, 20, 80, 320, 1280, 5120, 20480]
-JUMP_START_TURN  = 500
+JUMP_TURNS_LIST = [5, 500, 1000, 1500, 2000,2500,3000]
+JUMP_START_TURN  = 10
 THRESHOLD_NS     = 2.0            # highlight region achieving sub-2ns compression
 # ===============================================
 
@@ -72,7 +72,7 @@ for Vrf_low_kV in VRF_LOW_KV_LIST:
     for jump_turns in JUMP_TURNS_LIST:
         run_id = f"run_{int(time.time()*1e6)}"
         np.random.seed(RNG_SEED)
-        time0, dE0 = initial_bunch(N, a_t, a_E)
+        time0, dE0 = initial_bunch(N, a_t, a_E, method="uniform", truncate=6.0)
 
         acceleration_program = AccelerationProgram(
             phi_s_final_deg=30, start_turn=0, ramp_turns=0, enabled=False,
@@ -177,7 +177,7 @@ fig, ax = plt.subplots(figsize=(7, 5))
 mesh = ax.pcolormesh(X, Y, Z, shading="nearest")
 fig.colorbar(mesh, ax=ax, label="Min RMS bunch length [ns]")
 
-ax.set_xscale("log")
+
 ax.set_xlabel("jump_turns")
 ax.set_ylabel("Vrf_low [kV]")
 ax.set_title("Min RMS bunch length [ns]")

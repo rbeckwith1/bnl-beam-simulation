@@ -182,9 +182,9 @@ if __name__ == "__main__":
               f"min_sigma={row.min_time_sigma_ns:.3f} ns")
     sub2_valid = sub_2ns[sub_2ns.turn_of_min <= max_common_turn]
     sub2_idx = [np.where(dwells == d)[0][0] for d in sub2_valid.dwell_turns]
-    ax3.scatter(sub2_valid.turn_of_min, sub2_idx, marker="o", s=40,
-                facecolor="none", edgecolor="white", linewidth=1.2, zorder=4,
-                label="< 2 ns")
+    # ax3.scatter(sub2_valid.turn_of_min, sub2_idx, marker="o", s=40,
+    #             facecolor="none", edgecolor="white", linewidth=1.2, zorder=4,
+    #             label="< 2 ns")
 
     ax3.legend(loc="upper left", fontsize=8, facecolor="white", framealpha=0.8)
     fig3.tight_layout()

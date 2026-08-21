@@ -35,7 +35,7 @@ phi_ref_hold = np.pi - np.deg2rad(phi_s_hold_deg)
 
 jump_out_start_turn = 200   # let the matched bunch sit quietly first, then release
 jump_turns = 5
-dwell_turns = 400
+dwell_turns = 600
 phase_jump_deg = 180.0
 
 N = 10000
@@ -86,6 +86,7 @@ df, snapshots, time_init_for_color = track_bunch(
 df = add_stability_columns(df, Nb=1.5e12)
 episodes = report_instabilities(df)
 
+
 print(df['unstable'].sum())  
 print(episodes)
 
@@ -104,6 +105,26 @@ ENABLE_CARTOON = True
 
 if ENABLE_PLOTS:
     save_standard_plots(df, OUT_DIR)
+    
+    phi_s_deg = np.array([
+    np.rad2deg(phase_program(turn)[1])
+    for turn in df["turn"]
+    ])
+    
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    ax.plot(df["turn"], phi_s_deg, lw=1.2)
+    
+    ax.set_xlabel("Turn")
+    ax.set_ylabel(r"$\phi_s$ [$^\circ$]")
+    ax.set_title("Synchronous phase vs. turn")
+    ax.grid(alpha=0.3)
+    
+    fig.tight_layout()
+    fig.savefig(
+        f"{OUT_DIR}/plot_8_phi_s_vs_turn.png",
+        dpi=140,
+    )
+    plt.close(fig)
 
 if ENABLE_ANIMATION:
     render_animation(

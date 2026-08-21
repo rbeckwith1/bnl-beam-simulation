@@ -5,6 +5,15 @@ import numpy as np
 from matplotlib.colors import LogNorm
 from matplotlib.ticker import FormatStrFormatter, NullFormatter
 
+plt.rcParams.update({
+    "font.size": 9,
+    "axes.titlesize": 9,
+    "axes.labelsize": 9,
+    "xtick.labelsize": 9,
+    "ytick.labelsize": 9,
+    "legend.fontsize": 9,
+    "figure.titlesize": 9,
+})
 
 # Define output 
 SCANS_DIR = os.path.dirname(os.path.abspath(__file__))         
@@ -117,9 +126,9 @@ for _, row in sub_2ns.iterrows():
     print(f"  depth={row.mod_depth:.3f}, turn={row.turn_of_min:.0f}, "
           f"min_sigma={row.min_time_sigma_ns:.3f} ns")
 sub2_idx = [np.where(depths == d)[0][0] for d in sub_2ns.mod_depth]
-ax3.scatter(sub_2ns.turn_of_min, sub2_idx, marker="o", s=40,
-            facecolor="none", edgecolor="white", linewidth=1.2, zorder=4,
-            label="< 2 ns")
+# ax3.scatter(sub_2ns.turn_of_min, sub2_idx, marker="o", s=40,
+            # facecolor="none", edgecolor="white", linewidth=1.2, zorder=4,
+            # label="< 2 ns")
 
 ax3.legend(loc="upper left", fontsize=8, facecolor="white", framealpha=0.8)
 fig3.tight_layout()
