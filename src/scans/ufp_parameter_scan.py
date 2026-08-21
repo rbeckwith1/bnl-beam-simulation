@@ -42,7 +42,7 @@ phi_s_hold_deg = 0.0
 jump_out_start_turn = 200   # let the matched bunch sit quietly first, then release
 
 N = 10000
-eps_l_ns_GeV = 0.95  # From Brendan
+eps_l_ns_GeV = 1.35 # From Brendan
 emittance_growth_ceiling = 0.14
 margin_turns = 2000  # extra turns after capture to let things settle
 

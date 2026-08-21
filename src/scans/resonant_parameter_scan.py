@@ -32,10 +32,21 @@ import glob
 import time
 
 
+# --- Report plotting style (9 pt) ---
+plt.rcParams.update({
+    "font.size": 9,
+    "axes.titlesize": 9,
+    "axes.labelsize": 9,
+    "xtick.labelsize": 9,
+    "ytick.labelsize": 9,
+    "legend.fontsize": 9,
+    "figure.titlesize": 9,
+})
+
+
 # ================= USER-ADJUSTABLE KNOBS =================
 V_START_KV  = 30   # floor voltage the modulation can reach at MOD_DEPTH=1
-MOD_DEPTH   = 1.103
-
+MOD_DEPTH   = .103
 RAMP_TURNS  = 3000      # modulation ramp-up turns
 # ===========================================================
 
@@ -61,7 +72,7 @@ initial_energy_mismatch = 1.0
 
 N = 10000
 n_turns = 8000
-eps_l_ns_GeV = 0.95  # From Brendan
+eps_l_ns_GeV = 1.35  # From Brendan
 emittance_growth_ceiling = 0.14
 
 RNG_SEED = 12345

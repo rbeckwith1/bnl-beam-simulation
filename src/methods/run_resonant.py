@@ -4,22 +4,8 @@ Resonant (parametric) bunching run
 Physical picture: a matched bunch's envelope (quadrupole/breathing) degree
 of freedom can be parametrically driven when the RF voltage is modulated at
 omega_mod close to 2*omega_s (Mathieu/Hill-type resonance). See
-rf_programs/resonant.py for the exact voltage-program formula and the NOTE
-on modulation_phase there -- growth vs. suppression is not knowable a
-priori and must be checked against the Q1/Q2/theta_Q diagnostics below.
+rf_programs/resonant.py for the exact voltage-program formula.
 
-Acceleration (the dK0_turn / phi_s energy ramp) is wired in via
-core/acceleration.py -- see ENABLE_ACCELERATION below. It's a toggle, not a
-separate code path: core/tracking.py always builds a ReferenceParticle and
-always asks the acceleration_program for (dK0, phi_s, phi_ref) every turn,
-so ENABLE_ACCELERATION=False reproduces pure resonant modulation (K0 fixed)
-exactly, and =True layers an energy ramp on top of the modulation. NOTE:
-this combination (accelerate WHILE parametrically modulating) hasn't been
-studied in this scaffold before -- the Q1/Q2/theta_Q envelope diagnostics
-and the separatrix (now phi_s-aware, see core/separatrix.py) still apply,
-but whether the resonance condition (omega_mod = 2*omega_s) stays satisfied
-as the bucket shrinks under acceleration is an open question, not something
-this file verifies for you.
 """
 
 import os
@@ -37,7 +23,7 @@ from core.synchrotron import get_omega_s
 from core.separatrix import Separatrix
 from core.bunch_init import matched_ellipse_amplitudes, initial_bunch
 from core.tracking import track_bunch
-from core.diagnostics import save_csv, save_standard_plots
+from core.diagnostics import save_csv, save_standard_plots, save_initial_distribution
 from core.animation import render_animation
 from rf_programs.resonant import ResonantProgram
 from core.acceleration import AccelerationProgram
@@ -45,14 +31,18 @@ from core.cartoon_plots import render_storyboard
 from core.stability import add_stability_columns, report_instabilities 
 
 plt.rcParams.update({
-    "font.size": 12,          # default font size
-    "axes.titlesize": 12,
-    "axes.labelsize": 12,
-    "xtick.labelsize": 11,
-    "ytick.labelsize": 11,
-    "legend.fontsize": 11,
-    "figure.titlesize": 12
+    "font.size": 10,          # default font size
+    "axes.titlesize": 10,
+    "axes.labelsize": 10,
+    "xtick.labelsize": 9,
+    "ytick.labelsize": 9,
+    "legend.fontsize": 9,
+    "figure.titlesize": 10
 })
+
+ENABLE_PLOTS = True
+ENABLE_ANIMATION = False
+ENABLE_CARTOON = True
 
 RNG_SEED = 12345
 np.random.seed(RNG_SEED)
@@ -63,7 +53,7 @@ os.makedirs(OUT_DIR, exist_ok=True)
 
 # --- method-specific configuration (this is the only place these live) ---
 V_max = 320e3 / 1e9     # hardware ceiling, used only to size the separatrix grid generously
-modulation_depth = 0.8
+modulation_depth = 0.9
 V_start = 30e3/1e9 
 
 V_low = V_max - modulation_depth * (V_max - V_start)
@@ -73,17 +63,18 @@ depth = (V_max - V_low) / (2 * Vrf_mean)
 resonance_ratio = 2.0             # omega_mod = resonance_ratio * omega_s * (1+detuning)
 detuning = 0.0                    # fractional detuning of the modulation frequency
 modulation_start_turn = 0
-modulation_ramp_turns = 500     # turns over which depth ramps 0 -> modulation_depth
+modulation_ramp_turns = 3000     # turns over which depth ramps 0 -> modulation_depth
                                    # (0 = instantaneous switch-on; >0 = smooth ramp)
 modulation_phase = 0.0            # modulation phase offset [rad] -- see NOTE in rf_programs/resonant.py
 
-N = 10000
-Nb = 1.5e12 # stability constant - physical number of real protons in bunch (from Brandon)
+N = 50000 # number of particles in the simulation
+Nb = 1.5e12 # determines physical bunch intensity
 
-n_turns = 6000 # max turns or # of turns if stop_after_best_compression = off
-eps_l_ns_GeV = 1.35  
+n_turns = 8000 # max turns or # of turns if stop_after_best_compression = off
+eps_l_ns_GeV =  1.35
+J = 3/2
 
-# --- shared machinery (needs to exist before we can compute omega_s) ----
+# --- shared machinery ----
 kinematics.print_summary()
 
 a_coef = compute_a_coefficient()
@@ -118,10 +109,7 @@ print(f"Modulation hold: turns [{modulation_start_turn + modulation_ramp_turns},
 
 # --- acceleration toggle ---------------------------------------------------
 # Starts only after the modulation has fully ramped down AND the bunch has
-# had time to settle onto the static (unmodulated) separatrix. Check your
-# Q1/Q2/theta_Q diagnostics relax_margin is big
-# enough -- if the envelope is still ringing when acceleration kicks in,
-# increase this.
+# had time to settle onto the static (unmodulated) separatrix
 relax_margin = 0 #int(3 * T_s_turns)  # a few synchrotron periods to settle
 ENABLE_ACCELERATION = False
 ACCEL_START_TURN = mod_stop_turn + mod_rampdown_turns + relax_margin
@@ -140,16 +128,28 @@ if ENABLE_ACCELERATION and ACCEL_START_TURN >= n_turns:
           f"acceleration is enabled but will never actually start in this run.")  
 
 
-#a_t, a_E = matched_ellipse_amplitudes(eps_l_ns_GeV, a_coef, b_coef)
 a_t, a_E = matched_ellipse_amplitudes(eps_l_ns_GeV, a_coef, b_coef_init)
 
-time0, dE0 = initial_bunch(N, a_t, a_E, method = "uniform")
+time0, dE0 = initial_bunch(N, a_t, a_E, method = "ellipse",rng=None, J = J) 
+
+time = time0.copy()
+dE = dE0.copy()
+
+# testing projections consistency
+# time projection
+hist_t, bins_t = np.histogram(time0, bins=100, density=True)
+
+# energy projection
+hist_E, bins_E = np.histogram(dE0, bins=100, density=True)
+
+
+save_initial_distribution(
+    time,
+    dE,
+    OUT_DIR, Nb=Nb, J=J
+)
 
 separatrix = Separatrix(Vrf_max_expected=V_max * (1.0 + modulation_depth))
-
-ENABLE_PLOTS = True
-ENABLE_ANIMATION = False
-ENABLE_CARTOON = True
 
 # --- run ---
 df, snapshots, time_init_for_color = track_bunch(
@@ -159,7 +159,7 @@ df, snapshots, time_init_for_color = track_bunch(
     stop_after_best_compression=False,
 )
 
-df = add_stability_columns(df, Nb=Nb)
+df = add_stability_columns(df, Nb=Nb,J=J)
 episodes = report_instabilities(df)
 
 print(df['unstable'].sum())
@@ -205,7 +205,7 @@ if ENABLE_PLOTS:
 print(f"Minimum RMS bunch length: {df.time_sigma_ns.min():.3f} ns "
       f"at turn {df.loc[df.time_sigma_ns.idxmin(), 'turn']:.0f}")
 
-N_PANELS = 5
+N_PANELS = 4
 
 
 if ENABLE_CARTOON:
@@ -243,7 +243,7 @@ if ENABLE_CARTOON:
             np.linspace(first_peak, second_peak, 5)
         ).astype(int)
 
-        # Also include one frame immediately before modulation begins.
+        # Also include one frame immediately before modulation begins
         pre_modulation_idx = max(
             0,
             np.searchsorted(turns_arr, modulation_start_turn) - 1
@@ -275,6 +275,7 @@ if ENABLE_CARTOON:
         f"{OUT_DIR}/storyboard.png",
         panel_indices=storyboard_indices,
         ncols=3,
+        font_size_pt=7,
         center_on_bunch=False,
         suptitle="Resonant bunching",
         extra_info=(
@@ -289,7 +290,7 @@ if ENABLE_CARTOON:
             )
         ),
     )
-# also save a vector version for print quality on the poster:
+# save a vector version for print quality
 render_storyboard(
     snapshots, time_init_for_color, a_t, a_E, separatrix, T_s_turns,
     f"{OUT_DIR}/storyboard.pdf",

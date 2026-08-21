@@ -35,9 +35,9 @@ from core.acceleration import AccelerationProgram
 
 # ================= SCAN GRID =================
 VRF_HIGH_KV      = 320.0                          # hardware ceiling, fixed
-VRF_LOW_KV_LIST  = np.linspace(1, 20, 19)       # PRIMARY axis
-JUMP_TURNS_LIST  = [1, 10, 50, 100]         # secondary / robustness axis
-JUMP_START_TURN  = 500
+VRF_LOW_KV_LIST  = np.linspace(1, 200, 19)       # PRIMARY axis
+JUMP_TURNS_LIST = [5, 500, 1000, 1500, 2000,2500,3000]
+JUMP_START_TURN  = 10
 THRESHOLD_NS     = 2.0            # highlight region achieving sub-2ns compression
 # ===============================================
 
@@ -72,7 +72,7 @@ for Vrf_low_kV in VRF_LOW_KV_LIST:
     for jump_turns in JUMP_TURNS_LIST:
         run_id = f"run_{int(time.time()*1e6)}"
         np.random.seed(RNG_SEED)
-        time0, dE0 = initial_bunch(N, a_t, a_E)
+        time0, dE0 = initial_bunch(N, a_t, a_E, method="uniform", truncate=6.0)
 
         acceleration_program = AccelerationProgram(
             phi_s_final_deg=30, start_turn=0, ramp_turns=0, enabled=False,
@@ -168,36 +168,20 @@ fig.tight_layout()
 fig.savefig(os.path.join(OUT_DIR, "sigma_vs_jump_turns.png"), dpi=140)
 plt.close(fig)
 
-# 3) Full 2D picture, with the sub-threshold region outlined + hatched
+# 3) Full 2D picture
 pivot = summary_df.pivot(index="Vrf_low_kV", columns="jump_turns", values="min_time_sigma_ns")
 X, Y = np.meshgrid(pivot.columns.values, pivot.index.values)  # X=jump_turns, Y=Vrf_low_kV
 Z = pivot.values
 
 fig, ax = plt.subplots(figsize=(7, 5))
-im = ax.imshow(Z, aspect="auto", origin="lower",
-               extent=[min(JUMP_TURNS_LIST), max(JUMP_TURNS_LIST),
-                       pivot.index.min(), pivot.index.max()])
+mesh = ax.pcolormesh(X, Y, Z, shading="nearest")
+fig.colorbar(mesh, ax=ax, label="Min RMS bunch length [ns]")
+
+
 ax.set_xlabel("jump_turns")
 ax.set_ylabel("Vrf_low [kV]")
-ax.set_title(f"Min RMS bunch length [ns]  (red line / hatch = below {THRESHOLD_NS:.1f} ns)")
-fig.colorbar(im, ax=ax, label="min $\\sigma_t$ [ns]")
-
-# only draw the contour/hatch if the threshold is actually crossed somewhere
-# in the grid -- otherwise contour() raises/warns on a level with no crossing
-if Z.min() < THRESHOLD_NS < Z.max():
-    cs = ax.contour(X, Y, Z, levels=[THRESHOLD_NS], colors="red", linewidths=2)
-    ax.clabel(cs, fmt=f"{THRESHOLD_NS:.1f} ns", colors="red")
-    ax.contourf(X, Y, Z, levels=[Z.min(), THRESHOLD_NS], colors="none",
-                hatches=["//"], zorder=1)
-elif Z.max() < THRESHOLD_NS:
-    ax.text(0.02, 0.98, f"entire grid < {THRESHOLD_NS:.1f} ns",
-            transform=ax.transAxes, va="top", color="red", fontsize=9)
-else:
-    ax.text(0.02, 0.98, f"no grid points reach < {THRESHOLD_NS:.1f} ns",
-            transform=ax.transAxes, va="top", color="red", fontsize=9)
+ax.set_title("Min RMS bunch length [ns]")
 
 fig.tight_layout()
 fig.savefig(os.path.join(OUT_DIR, "scan_heatmap.png"), dpi=140)
 plt.close(fig)
-
-print(f"Saved diagnostic plots to {OUT_DIR}")
